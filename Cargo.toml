@@ -1,0 +1,25 @@
+[package]
+name = "encore"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Rune is pre-release: pin a `dev` rev (that branch is never rewritten).
+rune = { git = "https://github.com/anomalyco/rune", rev = "d751f07106eac47bdd4e33756dee71e1f593c9e2" }
+ureq = { version = "2", features = ["json"] }
+serde_json = "1"
+libc = "0.2"
+ort = "=2.0.0-rc.10"
+realfft = "3"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+
+# The installed build: whole-program optimisation (thin LTO keeps the link within this
+# machine's 8 GB), one copy of each generic, and no debug symbols in the binary.
+# Panics still unwind so the crash hook in main.rs can write ~/.cache/encore/crash.log.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true
+debug = false
+incremental = false

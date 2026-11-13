@@ -1,0 +1,24 @@
+#!/bin/sh
+# Start Encore, and start it again if it crashes: on Apple Silicon a GPU request can fail
+# while the laptop wakes from sleep with little memory free, and wgpu ends the app on that.
+# Only crashes relaunch (a Rust panic exits 101; SIGTRAP/ABRT/BUS/SEGV give 133-139), never a
+# normal quit or a kill, and at most 3 times a minute so a real bug can't loop forever.
+bin="$HOME/.local/lib/encore/encore"
+count=0
+window_start=$(date +%s)
+while :; do
+  "$bin" "$@"
+  rc=$?
+  case $rc in
+    101 | 133 | 134 | 135 | 139) ;;
+    *) exit "$rc" ;;
+  esac
+  now=$(date +%s)
+  if [ $((now - window_start)) -gt 60 ]; then
+    count=0
+    window_start=$now
+  fi
+  count=$((count + 1))
+  [ "$count" -gt 3 ] && exit "$rc"
+  sleep 2
+done

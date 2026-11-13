@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Encore
+GenericName=Music Player
+Comment=YouTube Music player
+Exec=encore
+Icon=encore
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=music;youtube;songs;player;
