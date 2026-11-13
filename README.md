@@ -65,6 +65,11 @@ Source builds default to two jobs during installation to limit memory use. Set
 See the [official yt-dlp installation guide](https://github.com/yt-dlp/yt-dlp#installation).
 A stale yt-dlp is a common reason tracks fail to start.
 
+YouTube extraction also needs a supported JavaScript runtime and matching challenge
+solver scripts. Follow yt-dlp's [official EJS setup guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
+Deno is enabled by default; Node needs `--js-runtimes node` in your yt-dlp configuration.
+A metadata lookup can succeed without this setup while some playback formats remain missing.
+
 Uninstall with `./install.sh --uninstall` from the source tree or extracted release.
 Settings and cached data are kept. `ENCORE_PREFIX=/absolute/path` changes the install
 prefix (default `~/.local`); use the same prefix to uninstall.
