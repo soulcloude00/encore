@@ -46,7 +46,9 @@ impl App {
                         p.load(&t.url(), self.quality.format(), start);
                     }
                 }
-                self.queue_stems(&t.id, Engine::Fast);
+                if self.engine == Engine::Fast || separate::fast_models_available() {
+                    self.queue_stems(&t.id, Engine::Fast);
+                }
             }
         }
         // HQ engine: once the fast stems exist, make the best ones too.
@@ -56,7 +58,11 @@ impl App {
     }
 
     fn play_stem(&mut self, id: &str, stems: &Stems, start: Option<f64>) {
-        let path = if self.vocal == Vocal::Karaoke { &stems.instrumental } else { &stems.vocals };
+        let path = if self.vocal == Vocal::Karaoke {
+            &stems.instrumental
+        } else {
+            &stems.vocals
+        };
         let path = path.display().to_string();
         if let Some(p) = &mut self.player {
             p.set_audio_filter("");
@@ -113,10 +119,15 @@ impl App {
                 }
             }
         }
-        if self.vocal != Vocal::Normal {
-            if let Some(next) = self.current.and_then(|i| self.queue.get(i + 1)).cloned() {
-                self.queue_stems(&next.id, Engine::Fast);
-            }
+        if self.vocal != Vocal::Normal
+            && let Some(next) = self.current.and_then(|i| self.queue.get(i + 1)).cloned()
+        {
+            let engine = if self.engine == Engine::Hq && !separate::fast_models_available() {
+                Engine::Hq
+            } else {
+                Engine::Fast
+            };
+            self.queue_stems(&next.id, engine);
         }
     }
 

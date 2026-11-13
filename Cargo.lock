@@ -827,6 +827,7 @@ dependencies = [
  "realfft",
  "rune",
  "serde_json",
+ "tempfile",
  "ureq 2.12.1",
 ]
 

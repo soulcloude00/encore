@@ -15,7 +15,9 @@ pub enum Lyrics {
 impl Lyrics {
     /// The line playing at `t`, for synced lyrics.
     pub fn line_at(&self, t: f64) -> Option<usize> {
-        let Lyrics::Synced(lines) = self else { return None };
+        let Lyrics::Synced(lines) = self else {
+            return None;
+        };
         // Show a line a touch early: reading lags hearing.
         let t = t + 0.25;
         lines.iter().rposition(|(at, _)| *at <= t)
@@ -31,7 +33,12 @@ fn secs(d: &str) -> Option<u32> {
 }
 
 fn get(url: &str, query: &[(&str, &str)]) -> Option<Value> {
-    let mut req = ureq::get(url).set("User-Agent", "Encore music player (https://github.com/anomalyco/rune)").timeout(std::time::Duration::from_secs(10));
+    let mut req = ureq::get(url)
+        .set(
+            "User-Agent",
+            "Encore music player (https://github.com/anomalyco/rune)",
+        )
+        .timeout(std::time::Duration::from_secs(10));
     for (k, v) in query {
         req = req.query(k, v);
     }
@@ -44,7 +51,12 @@ fn clean_title(t: &str) -> String {
     for open in ['(', '['] {
         if let Some(i) = s.find(open) {
             let lower = s[i..].to_lowercase();
-            if ["feat", "ft.", "official", "remaster", "lyric", "audio", "video", "from "].iter().any(|w| lower.contains(w)) {
+            if [
+                "feat", "ft.", "official", "remaster", "lyric", "audio", "video", "from ",
+            ]
+            .iter()
+            .any(|w| lower.contains(w))
+            {
                 s.truncate(i);
             }
         }
@@ -56,19 +68,25 @@ pub fn fetch(t: &Track) -> Lyrics {
     let title = clean_title(&t.title);
     let artist = crate::taste::primary_artist(&t.artist);
     let dur = secs(&t.duration).map(|d| d.to_string()).unwrap_or_default();
-    let mut q = vec![("track_name", title.as_str()), ("artist_name", artist.as_str())];
+    let mut q = vec![
+        ("track_name", title.as_str()),
+        ("artist_name", artist.as_str()),
+    ];
     if !dur.is_empty() {
         q.push(("duration", dur.as_str()));
     }
-    if let Some(v) = get("https://lrclib.net/api/get", &q) {
-        if let Some(l) = from_record(&v) {
-            return l;
-        }
+    if let Some(v) = get("https://lrclib.net/api/get", &q)
+        && let Some(l) = from_record(&v)
+    {
+        return l;
     }
     // No exact match: search, preferring a synced result.
     let query = format!("{artist} {title}");
-    if let Some(Value::Array(hits)) = get("https://lrclib.net/api/search", &[("q", query.as_str())]) {
-        let synced = hits.iter().find(|h| h["syncedLyrics"].as_str().is_some_and(|s| !s.is_empty()));
+    if let Some(Value::Array(hits)) = get("https://lrclib.net/api/search", &[("q", query.as_str())])
+    {
+        let synced = hits
+            .iter()
+            .find(|h| h["syncedLyrics"].as_str().is_some_and(|s| !s.is_empty()));
         if let Some(l) = synced.or(hits.first()).and_then(from_record) {
             return l;
         }
@@ -96,10 +114,10 @@ pub fn parse_lrc(lrc: &str) -> Vec<(f64, String)> {
         while let Some(body) = rest.strip_prefix('[') {
             let Some(end) = body.find(']') else { break };
             let stamp = &body[..end];
-            if let Some((m, s)) = stamp.split_once(':') {
-                if let (Ok(m), Ok(s)) = (m.parse::<f64>(), s.parse::<f64>()) {
-                    stamps.push(m * 60.0 + s);
-                }
+            if let Some((m, s)) = stamp.split_once(':')
+                && let (Ok(m), Ok(s)) = (m.parse::<f64>(), s.parse::<f64>())
+            {
+                stamps.push(m * 60.0 + s);
             }
             rest = &body[end + 1..];
         }
@@ -118,7 +136,10 @@ mod tests {
     #[test]
     fn parses_lrc_and_finds_lines() {
         let l = parse_lrc("[00:01.00]One\n[00:05.50]Two\n[00:03.00][00:09.00]Chorus\n");
-        assert_eq!(l.iter().map(|x| x.1.as_str()).collect::<Vec<_>>(), ["One", "Chorus", "Two", "Chorus"]);
+        assert_eq!(
+            l.iter().map(|x| x.1.as_str()).collect::<Vec<_>>(),
+            ["One", "Chorus", "Two", "Chorus"]
+        );
         let lyr = Lyrics::Synced(l);
         assert_eq!(lyr.line_at(0.2), None);
         assert_eq!(lyr.line_at(4.0), Some(1));
@@ -128,7 +149,10 @@ mod tests {
     #[test]
     fn cleans_titles() {
         assert_eq!(clean_title("Starboy (feat. Daft Punk)"), "Starboy");
-        assert_eq!(clean_title("Blinding Lights (Official Audio)"), "Blinding Lights");
+        assert_eq!(
+            clean_title("Blinding Lights (Official Audio)"),
+            "Blinding Lights"
+        );
         assert_eq!(clean_title("Love (Remix)"), "Love (Remix)");
     }
 }

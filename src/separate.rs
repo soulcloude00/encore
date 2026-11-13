@@ -27,20 +27,15 @@ const RATE: u32 = 44_100;
 /// UVR's level correction for this model.
 const COMPENSATE: f32 = 1.009;
 
-pub const MODEL_URL: &str = "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/Kim_Vocal_2.onnx";
+pub const MODEL_URL: &str =
+    "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/Kim_Vocal_2.onnx";
 
 pub fn model_path() -> PathBuf {
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/share"));
-    base.join("encore/models/Kim_Vocal_2.onnx")
+    crate::paths::models().join("Kim_Vocal_2.onnx")
 }
 
 pub fn cache_dir() -> PathBuf {
-    let base = std::env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache"));
-    base.join("encore/stems")
+    crate::paths::cache().join("stems")
 }
 
 /// Which separator: Spleeter (small, int8, seconds per song) or Kim_Vocal_2 (big, best).
@@ -62,6 +57,12 @@ impl Engine {
     }
 }
 
+pub fn fast_models_available() -> bool {
+    ["vocals.int8.onnx", "accompaniment.int8.onnx"]
+        .iter()
+        .all(|name| models_dir().join("spleeter-int8").join(name).is_file())
+}
+
 fn models_dir() -> PathBuf {
     model_path().parent().unwrap().to_path_buf()
 }
@@ -75,13 +76,25 @@ pub struct Stems {
 
 fn stem_paths(id: &str, e: Engine) -> Stems {
     let d = cache_dir();
-    Stems { vocals: d.join(format!("{id}.{}.vocals.wav", e.id())), instrumental: d.join(format!("{id}.{}.inst.wav", e.id())) }
+    Stems {
+        vocals: d.join(format!("{id}.{}.vocals.wav", e.id())),
+        instrumental: d.join(format!("{id}.{}.inst.wav", e.id())),
+    }
 }
 
 /// Stems already on disk: HQ ones if there are, else fast ones (unless HQ is required).
 pub fn cached(id: &str, at_least: Engine) -> Option<Stems> {
+    if !crate::paths::valid_media_id(id) {
+        return None;
+    }
     let ok = |s: Stems| (s.vocals.exists() && s.instrumental.exists()).then_some(s);
-    ok(stem_paths(id, Engine::Hq)).or_else(|| if at_least == Engine::Fast { ok(stem_paths(id, Engine::Fast)) } else { None })
+    ok(stem_paths(id, Engine::Hq)).or_else(|| {
+        if at_least == Engine::Fast {
+            ok(stem_paths(id, Engine::Fast))
+        } else {
+            None
+        }
+    })
 }
 
 /// The loaded model, shared by separations close together: loading it takes about a second.
@@ -98,7 +111,10 @@ fn release_later() {
     *LAST_USE.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
     std::thread::spawn(|| {
         std::thread::sleep(IDLE);
-        let idle = LAST_USE.lock().unwrap_or_else(|e| e.into_inner()).is_some_and(|t| t.elapsed() >= IDLE);
+        let idle = LAST_USE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some_and(|t| t.elapsed() >= IDLE);
         if idle {
             SESSION.lock().unwrap_or_else(|e| e.into_inner()).take();
             SPLEETER.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -115,7 +131,9 @@ fn session() -> Result<Arc<Mutex<Session>>, String> {
     if !path.exists() {
         download_model(&path)?;
     }
-    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
     let s = Session::builder()
         .and_then(|b| b.with_optimization_level(GraphOptimizationLevel::Level3))
         .and_then(|b| b.with_intra_threads(threads))
@@ -128,7 +146,9 @@ fn session() -> Result<Arc<Mutex<Session>>, String> {
 
 fn download_model(path: &Path) -> Result<(), String> {
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-    let resp = ureq::get(MODEL_URL).call().map_err(|e| format!("couldn't download the vocal model: {e}"))?;
+    let resp = ureq::get(MODEL_URL)
+        .call()
+        .map_err(|e| format!("couldn't download the vocal model: {e}"))?;
     let tmp = path.with_extension("part");
     let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
     std::io::copy(&mut resp.into_reader(), &mut f).map_err(|e| e.to_string())?;
@@ -138,40 +158,89 @@ fn download_model(path: &Path) -> Result<(), String> {
 /// Decode a song to 44.1 kHz stereo floats, interleaved. yt-dlp fetches the audio (it knows
 /// the headers YouTube wants), ffmpeg decodes it.
 fn decode(page_url: &str, ytdlp: &str) -> Result<Vec<f32>, String> {
-    let dir = cache_dir().join("tmp");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let stem = dir.join(format!("dl-{}", std::process::id()));
+    std::fs::create_dir_all(cache_dir()).map_err(|e| e.to_string())?;
+    let workspace = tempfile::Builder::new()
+        .prefix("decode-")
+        .tempdir_in(cache_dir())
+        .map_err(|e| e.to_string())?;
+    let stem = workspace.path().join("audio");
     let out = std::process::Command::new(ytdlp)
-        .args(["--no-warnings", "-q", "--no-playlist", "-f", "251/bestaudio/best", "--force-overwrites", "-o"])
+        .args([
+            "--no-warnings",
+            "-q",
+            "--no-playlist",
+            "-f",
+            "251/bestaudio/best",
+            "--force-overwrites",
+            "-o",
+        ])
         .arg(format!("{}.%(ext)s", stem.display()))
         .arg("--print")
         .arg("after_move:filepath")
         .arg(page_url)
         .output()
         .map_err(|e| format!("couldn't run yt-dlp: {e}"))?;
-    let file = String::from_utf8_lossy(&out.stdout).lines().last().unwrap_or_default().trim().to_string();
-    if file.is_empty() || !Path::new(&file).exists() {
-        return Err(format!("yt-dlp couldn't fetch the audio: {}", String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("")));
+    let file = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .last()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !out.status.success() || file.is_empty() || !Path::new(&file).exists() {
+        return Err(format!(
+            "yt-dlp couldn't fetch the audio: {}",
+            String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .last()
+                .unwrap_or("")
+        ));
     }
     let mut child = std::process::Command::new("ffmpeg")
-        .args(["-nostdin", "-loglevel", "error", "-i", &file, "-f", "f32le", "-ac", "2", "-ar", "44100", "pipe:1"])
+        .args([
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-i",
+            &file,
+            "-f",
+            "f32le",
+            "-ac",
+            "2",
+            "-ar",
+            "44100",
+            "pipe:1",
+        ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()
         .map_err(|e| format!("couldn't run ffmpeg: {e}"))?;
     let mut bytes = Vec::new();
-    child.stdout.take().unwrap().read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-    let _ = child.wait();
-    let _ = std::fs::remove_file(&file);
-    if bytes.len() < 8 {
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err(format!("ffmpeg failed: {status}"));
+    }
+    if bytes.len() < 8 || bytes.len() % 8 != 0 {
         return Err("ffmpeg decoded nothing".into());
     }
-    Ok(bytes.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect())
+    Ok(bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect())
 }
 
 /// Periodic Hann, as torch.hann_window(n) (the window UVR's STFT uses).
 fn hann() -> Vec<f32> {
-    (0..N_FFT).map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / N_FFT as f32).cos()).collect()
+    (0..N_FFT)
+        .map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / N_FFT as f32).cos())
+        .collect()
 }
 
 struct Fft {
@@ -183,7 +252,11 @@ struct Fft {
 impl Fft {
     fn new() -> Fft {
         let mut p = RealFftPlanner::<f32>::new();
-        Fft { fwd: p.plan_fft_forward(N_FFT), inv: p.plan_fft_inverse(N_FFT), win: hann() }
+        Fft {
+            fwd: p.plan_fft_forward(N_FFT),
+            inv: p.plan_fft_inverse(N_FFT),
+            win: hann(),
+        }
     }
 
     /// One channel's chunk (CHUNK samples) → the model's input planes (re, im), each
@@ -191,7 +264,13 @@ impl Fft {
     fn stft(&self, x: &[f32], re: &mut [f32], im: &mut [f32]) {
         let n = x.len();
         let reflect = |i: isize| -> f32 {
-            let i = if i < 0 { -i } else if i >= n as isize { 2 * (n as isize - 1) - i } else { i };
+            let i = if i < 0 {
+                -i
+            } else if i >= n as isize {
+                2 * (n as isize - 1) - i
+            } else {
+                i
+            };
             x[i as usize]
         };
         let mut frame = vec![0f32; N_FFT];
@@ -219,7 +298,11 @@ impl Fft {
         let mut frame = vec![0f32; N_FFT];
         for t in 0..DIM_T {
             for (f, c) in spec.iter_mut().enumerate() {
-                *c = if f < DIM_F { Complex32::new(re[f * DIM_T + t], im[f * DIM_T + t]) } else { Complex32::new(0.0, 0.0) };
+                *c = if f < DIM_F {
+                    Complex32::new(re[f * DIM_T + t], im[f * DIM_T + t])
+                } else {
+                    Complex32::new(0.0, 0.0)
+                };
             }
             spec[0].im = 0.0;
             spec[N_BINS - 1].im = 0.0;
@@ -230,19 +313,39 @@ impl Fft {
                 env[o + k] += self.win[k] * self.win[k];
             }
         }
-        (0..CHUNK).map(|i| {
-            let e = env[i + TRIM];
-            if e > 1e-8 { out[i + TRIM] / e } else { 0.0 }
-        })
-        .collect()
+        (0..CHUNK)
+            .map(|i| {
+                let e = env[i + TRIM];
+                if e > 1e-8 { out[i + TRIM] / e } else { 0.0 }
+            })
+            .collect()
     }
 }
 
 /// Separate a song into vocals and instrumental, reporting progress (0..1) as it goes.
 /// Results are cached by id.
-pub fn separate(id: &str, page_url: &str, ytdlp: &str, engine: Engine, progress: &dyn Fn(f32)) -> Result<Stems, String> {
+pub fn separate(
+    id: &str,
+    page_url: &str,
+    ytdlp: &str,
+    engine: Engine,
+    progress: &dyn Fn(f32),
+) -> Result<Stems, String> {
+    if !crate::paths::valid_media_id(id) {
+        return Err("invalid media ID".into());
+    }
     if let Some(s) = cached(id, engine) {
         return Ok(s);
+    }
+    if engine == Engine::Fast {
+        for name in ["vocals.int8.onnx", "accompaniment.int8.onnx"] {
+            if !models_dir().join("spleeter-int8").join(name).is_file() {
+                return Err(
+                    "Fast vocal models are missing. See docs/models.md or use HQ separation."
+                        .into(),
+                );
+            }
+        }
     }
     progress(0.0);
     let mix = decode(page_url, ytdlp)?;
@@ -255,12 +358,23 @@ pub fn separate(id: &str, page_url: &str, ytdlp: &str, engine: Engine, progress:
     let vocals = vocals?;
     let stems = stem_paths(id, engine);
     std::fs::create_dir_all(cache_dir()).map_err(|e| e.to_string())?;
-    let gain = if engine == Engine::Hq { COMPENSATE } else { 1.0 };
+    let gain = if engine == Engine::Hq {
+        COMPENSATE
+    } else {
+        1.0
+    };
     let voc = |ch: usize, i: usize| vocals[ch][i] * gain;
-    write_wav(&stems.vocals.with_extension("part"), n, |ch, i| voc(ch, i))?;
-    write_wav(&stems.instrumental.with_extension("part"), n, |ch, i| mix[2 * i + ch] - voc(ch, i))?;
-    std::fs::rename(stems.vocals.with_extension("part"), &stems.vocals).map_err(|e| e.to_string())?;
-    std::fs::rename(stems.instrumental.with_extension("part"), &stems.instrumental).map_err(|e| e.to_string())?;
+    write_wav(&stems.vocals.with_extension("part"), n, voc)?;
+    write_wav(&stems.instrumental.with_extension("part"), n, |ch, i| {
+        mix[2 * i + ch] - voc(ch, i)
+    })?;
+    std::fs::rename(stems.vocals.with_extension("part"), &stems.vocals)
+        .map_err(|e| e.to_string())?;
+    std::fs::rename(
+        stems.instrumental.with_extension("part"),
+        &stems.instrumental,
+    )
+    .map_err(|e| e.to_string())?;
     prune(16);
     Ok(stems)
 }
@@ -295,11 +409,16 @@ fn mdx(mix: &[f32], progress: &dyn Fn(f32)) -> Result<[Vec<f32>; 2], String> {
                 fft.stft(&planes[1][start..start + CHUNK], rre, rim);
             });
         }
-        let tensor = Tensor::from_array(([1usize, 4, DIM_F, DIM_T], input.into_boxed_slice())).map_err(|e| e.to_string())?;
+        let tensor = Tensor::from_array(([1usize, 4, DIM_F, DIM_T], input.into_boxed_slice()))
+            .map_err(|e| e.to_string())?;
         let spec: Vec<f32> = {
             let mut s = session.lock().map_err(|_| "model lock poisoned")?;
-            let outputs = s.run(ort::inputs![tensor]).map_err(|e| format!("model failed: {e}"))?;
-            let (_, data) = outputs[0].try_extract_tensor::<f32>().map_err(|e| e.to_string())?;
+            let outputs = s
+                .run(ort::inputs![tensor])
+                .map_err(|e| format!("model failed: {e}"))?;
+            let (_, data) = outputs[0]
+                .try_extract_tensor::<f32>()
+                .map_err(|e| e.to_string())?;
             data.to_vec()
         };
         let (l, r) = std::thread::scope(|sc| {
@@ -328,28 +447,43 @@ const S_T: usize = 512;
 
 /// Spleeter's two int8 models (vocals, accompaniment), loaded once, each with half the cores
 /// so the two run side by side.
-static SPLEETER: Mutex<Option<Arc<(Mutex<Session>, Mutex<Session>)>>> = Mutex::new(None);
+type SessionPair = Arc<(Mutex<Session>, Mutex<Session>)>;
 
-fn spleeter_sessions() -> Result<Arc<(Mutex<Session>, Mutex<Session>)>, String> {
+static SPLEETER: Mutex<Option<SessionPair>> = Mutex::new(None);
+
+fn spleeter_sessions() -> Result<SessionPair, String> {
     let mut slot = SPLEETER.lock().map_err(|_| "model lock poisoned")?;
     if let Some(s) = &*slot {
         return Ok(s.clone());
     }
     let dir = models_dir().join("spleeter-int8");
-    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
     let load = |f: &str| {
         // No memory arena and no cached memory pattern: the arena keeps a song's worth of
         // activations after every run, which on an 8 GB machine starves the GPU.
-        let plain = ort::memory::MemoryInfo::new(ort::memory::AllocationDevice::CPU, 0, ort::memory::AllocatorType::Device, ort::memory::MemoryType::Default);
+        let plain = ort::memory::MemoryInfo::new(
+            ort::memory::AllocationDevice::CPU,
+            0,
+            ort::memory::AllocatorType::Device,
+            ort::memory::MemoryType::Default,
+        );
         Session::builder()
             .and_then(|b| b.with_optimization_level(GraphOptimizationLevel::Level3))
             .and_then(|b| b.with_intra_threads((cores / 2).max(1)))
             .and_then(|b| b.with_memory_pattern(false))
-            .and_then(|b| match plain { Ok(m) => b.with_allocator(m), Err(_) => Ok(b) })
+            .and_then(|b| match plain {
+                Ok(m) => b.with_allocator(m),
+                Err(_) => Ok(b),
+            })
             .and_then(|b| b.commit_from_file(dir.join(f)))
             .map_err(|e| format!("couldn't load Spleeter ({f}): {e}"))
     };
-    let pair = Arc::new((Mutex::new(load("vocals.int8.onnx")?), Mutex::new(load("accompaniment.int8.onnx")?)));
+    let pair = Arc::new((
+        Mutex::new(load("vocals.int8.onnx")?),
+        Mutex::new(load("accompaniment.int8.onnx")?),
+    ));
     *slot = Some(pair.clone());
     Ok(pair)
 }
@@ -364,7 +498,9 @@ fn spleeter(mix: &[f32], progress: &dyn Fn(f32)) -> Result<[Vec<f32>; 2], String
     let mut planner = RealFftPlanner::<f32>::new();
     let fwd = planner.plan_fft_forward(S_NFFT);
     let inv = planner.plan_fft_inverse(S_NFFT);
-    let win: Vec<f32> = (0..S_NFFT).map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / S_NFFT as f32).cos()).collect();
+    let win: Vec<f32> = (0..S_NFFT)
+        .map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / S_NFFT as f32).cos())
+        .collect();
 
     // Centre the frames: half an FFT of zeros each side, then round up to a whole hop.
     let half = S_NFFT / 2;
@@ -405,10 +541,15 @@ fn spleeter(mix: &[f32], progress: &dyn Fn(f32)) -> Result<[Vec<f32>; 2], String
     let mut v = vec![0f32; 2 * tf * S_F];
     let mut a = vec![0f32; 2 * tf * S_F];
     let run = |m: &Mutex<Session>, x: Vec<f32>, n: usize| -> Result<Vec<f32>, String> {
-        let t = Tensor::from_array(([2usize, n, S_T, S_F], x.into_boxed_slice())).map_err(|e| e.to_string())?;
+        let t = Tensor::from_array(([2usize, n, S_T, S_F], x.into_boxed_slice()))
+            .map_err(|e| e.to_string())?;
         let mut s = m.lock().map_err(|_| "model lock poisoned")?;
-        let out = s.run(ort::inputs![t]).map_err(|e| format!("Spleeter failed: {e}"))?;
-        let (_, d) = out[0].try_extract_tensor::<f32>().map_err(|e| e.to_string())?;
+        let out = s
+            .run(ort::inputs![t])
+            .map_err(|e| format!("Spleeter failed: {e}"))?;
+        let (_, d) = out[0]
+            .try_extract_tensor::<f32>()
+            .map_err(|e| e.to_string())?;
         Ok(d.to_vec())
     };
     let mut first = 0;
@@ -472,11 +613,12 @@ fn spleeter(mix: &[f32], progress: &dyn Fn(f32)) -> Result<[Vec<f32>; 2], String
                 env[t * S_HOP + k] += win[k] * win[k];
             }
         }
-        (0..n).map(|i| {
-            let e = env[half + i];
-            if e > 1e-8 { out[half + i] / e } else { 0.0 }
-        })
-        .collect()
+        (0..n)
+            .map(|i| {
+                let e = env[half + i];
+                if e > 1e-8 { out[half + i] / e } else { 0.0 }
+            })
+            .collect()
     };
     let (l, r) = std::thread::scope(|sc| {
         let h = sc.spawn(|| istft(0, &sl));
@@ -488,7 +630,11 @@ fn spleeter(mix: &[f32], progress: &dyn Fn(f32)) -> Result<[Vec<f32>; 2], String
 }
 
 /// 16-bit stereo WAV at 44.1 kHz.
-fn write_wav(path: &Path, frames: usize, sample: impl Fn(usize, usize) -> f32) -> Result<(), String> {
+fn write_wav(
+    path: &Path,
+    frames: usize,
+    sample: impl Fn(usize, usize) -> f32,
+) -> Result<(), String> {
     let mut f = std::io::BufWriter::new(std::fs::File::create(path).map_err(|e| e.to_string())?);
     let data = (frames * 4) as u32;
     let mut h = Vec::with_capacity(44);
@@ -518,16 +664,75 @@ fn write_wav(path: &Path, frames: usize, sample: impl Fn(usize, usize) -> f32) -
 
 /// Keep the newest `keep` songs' stems (about 80 MB a song).
 fn prune(keep: usize) {
-    let Ok(rd) = std::fs::read_dir(cache_dir()) else { return };
+    let Ok(rd) = std::fs::read_dir(cache_dir()) else {
+        return;
+    };
     let mut files: Vec<(std::time::SystemTime, PathBuf)> = rd
         .flatten()
         .filter(|e| e.path().extension().is_some_and(|x| x == "wav"))
         .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
         .collect();
-    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.sort_by_key(|a| std::cmp::Reverse(a.0));
     for (_, p) in files.into_iter().skip(keep * 2) {
         let _ = std::fs::remove_file(p);
     }
+}
+
+/// `encore --bench-model`: time the model alone on silence at a few batch sizes and thread
+/// counts, to pick the fastest setup for this machine.
+pub fn bench() -> Result<(), String> {
+    let path = model_path();
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    for threads in [cores, cores.saturating_sub(1).max(1)] {
+        let mut s = Session::builder()
+            .and_then(|b| b.with_optimization_level(GraphOptimizationLevel::Level3))
+            .and_then(|b| b.with_intra_threads(threads))
+            .and_then(|b| b.commit_from_file(&path))
+            .map_err(|e| e.to_string())?;
+        for batch in [1usize, 2] {
+            let mk = || {
+                Tensor::from_array((
+                    [batch, 4, DIM_F, DIM_T],
+                    vec![0f32; batch * 4 * DIM_F * DIM_T].into_boxed_slice(),
+                ))
+                .unwrap()
+            };
+            let _ = s.run(ort::inputs![mk()]).map(|_| ());
+            let t0 = std::time::Instant::now();
+            let ok = s.run(ort::inputs![mk()]).is_ok();
+            let per = t0.elapsed().as_secs_f32() / batch as f32;
+            // Seconds of music per chunk: GEN samples at 44.1 kHz.
+            println!(
+                "threads {threads} batch {batch}: {per:.2}s per chunk ({:.2}x realtime){}",
+                (GEN as f32 / RATE as f32) / per,
+                if ok { "" } else { " FAILED" }
+            );
+        }
+    }
+    Ok(())
+}
+
+/// `encore --probe-model <file>`: print a model's inputs, outputs and metadata.
+pub fn probe(path: &str) -> Result<(), String> {
+    let s = Session::builder()
+        .and_then(|b| b.commit_from_file(path))
+        .map_err(|e| e.to_string())?;
+    for i in &s.inputs {
+        println!("input  {} {:?}", i.name, i.input_type);
+    }
+    for o in &s.outputs {
+        println!("output {} {:?}", o.name, o.output_type);
+    }
+    let m = s.metadata().map_err(|e| e.to_string())?;
+    for k in m.custom_keys().unwrap_or_default() {
+        println!(
+            "meta   {k} = {}",
+            m.custom(&k).ok().flatten().unwrap_or_default()
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -538,54 +743,19 @@ mod tests {
     #[test]
     fn stft_round_trips() {
         let fft = Fft::new();
-        let x: Vec<f32> = (0..CHUNK).map(|i| ((i as f32) * 0.013).sin() * 0.5 + ((i as f32) * 0.0021).cos() * 0.3).collect();
+        let x: Vec<f32> = (0..CHUNK)
+            .map(|i| ((i as f32) * 0.013).sin() * 0.5 + ((i as f32) * 0.0021).cos() * 0.3)
+            .collect();
         let plane = DIM_F * DIM_T;
         let (mut re, mut im) = (vec![0f32; plane], vec![0f32; plane]);
         fft.stft(&x, &mut re, &mut im);
         let y = fft.istft(&re, &im);
         // Low-frequency test signal: well under the 3072-bin cut, so it should survive.
-        let err = x[TRIM..CHUNK - TRIM].iter().zip(&y[TRIM..CHUNK - TRIM]).map(|(a, b)| (a - b).abs()).fold(0.0, f32::max);
+        let err = x[TRIM..CHUNK - TRIM]
+            .iter()
+            .zip(&y[TRIM..CHUNK - TRIM])
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f32::max);
         assert!(err < 1e-3, "max error {err}");
-    }
-}
-
-/// `encore --bench-model`: time the model alone on silence at a few batch sizes and thread
-/// counts, to pick the fastest setup for this machine.
-pub fn bench() {
-    let path = model_path();
-    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-    for threads in [cores, cores.saturating_sub(1).max(1)] {
-        let mut s = Session::builder()
-            .unwrap()
-            .with_optimization_level(GraphOptimizationLevel::Level3)
-            .unwrap()
-            .with_intra_threads(threads)
-            .unwrap()
-            .commit_from_file(&path)
-            .unwrap();
-        for batch in [1usize, 2] {
-            let mk = || Tensor::from_array(([batch, 4, DIM_F, DIM_T], vec![0f32; batch * 4 * DIM_F * DIM_T].into_boxed_slice())).unwrap();
-            let _ = s.run(ort::inputs![mk()]).map(|_| ());
-            let t0 = std::time::Instant::now();
-            let ok = s.run(ort::inputs![mk()]).is_ok();
-            let per = t0.elapsed().as_secs_f32() / batch as f32;
-            // Seconds of music per chunk: GEN samples at 44.1 kHz.
-            println!("threads {threads} batch {batch}: {per:.2}s per chunk ({:.2}x realtime){}", (GEN as f32 / RATE as f32) / per, if ok { "" } else { " FAILED" });
-        }
-    }
-}
-
-/// `encore --probe-model <file>`: print a model's inputs, outputs and metadata.
-pub fn probe(path: &str) {
-    let s = Session::builder().unwrap().commit_from_file(path).unwrap();
-    for i in &s.inputs {
-        println!("input  {} {:?}", i.name, i.input_type);
-    }
-    for o in &s.outputs {
-        println!("output {} {:?}", o.name, o.output_type);
-    }
-    let m = s.metadata().unwrap();
-    for k in m.custom_keys().unwrap_or_default() {
-        println!("meta   {k} = {}", m.custom(&k).ok().flatten().unwrap_or_default());
     }
 }

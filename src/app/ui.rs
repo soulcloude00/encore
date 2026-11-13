@@ -1,13 +1,13 @@
 //! Encore's look: sidebar, a toolbar with a centred "now playing" display, big bold page
 //! titles, a top-result card, artwork shelves and clean track lists. Dark, with a red accent.
 
-use crate::ytm::Track;
 use crate::art::Style;
 use crate::lyrics::Lyrics;
+use crate::ytm::Track;
 use crate::{App, MOODS, Page, Quality, Repeat, Vocal, local_hour};
 use rune::{
-    Color, Cx, Drag, El, Icon, Phase, ScrollSpec, Spring, SurfaceFit, TextStyle, Tx, col, el, icon, oklch,
-    row, spacer, text, text_input,
+    Color, Cx, Drag, El, Icon, Phase, ScrollSpec, Spring, SurfaceFit, TextStyle, Tx, col, el, icon,
+    oklch, row, spacer, text, text_input,
 };
 
 // ------------------------------------------------------------------ palette & type
@@ -79,31 +79,101 @@ const CARD: f32 = 172.0;
 
 macro_rules! ico {
     ($name:ident, $body:expr) => {
-        static $name: Icon = Icon { name: stringify!($name), view: 24.0, body: $body };
+        static $name: Icon = Icon {
+            name: stringify!($name),
+            view: 24.0,
+            body: $body,
+        };
     };
 }
-ico!(PLAY, r#"<path d="M7.5 4.8v14.4a1 1 0 0 0 1.52.85l11.3-7.2a1 1 0 0 0 0-1.7L9.02 3.95A1 1 0 0 0 7.5 4.8z" fill="currentColor"/>"#);
-ico!(PAUSE, r#"<rect x="5.5" y="4" width="4.6" height="16" rx="1.3" fill="currentColor"/><rect x="13.9" y="4" width="4.6" height="16" rx="1.3" fill="currentColor"/>"#);
-ico!(NEXT, r#"<path d="M2.5 6.1v11.8a.9.9 0 0 0 1.38.76L12 13.5v4.4a.9.9 0 0 0 1.38.76l8.6-5.9a.9.9 0 0 0 0-1.5l-8.6-5.9A.9.9 0 0 0 12 6.1v4.4L3.88 5.34A.9.9 0 0 0 2.5 6.1z" fill="currentColor"/>"#);
-ico!(PREV, r#"<path d="M21.5 6.1v11.8a.9.9 0 0 1-1.38.76L12 13.5v4.4a.9.9 0 0 1-1.38.76l-8.6-5.9a.9.9 0 0 1 0-1.5l8.6-5.9A.9.9 0 0 1 12 6.1v4.4l8.12-5.16a.9.9 0 0 1 1.38.76z" fill="currentColor"/>"#);
-ico!(SHUFFLE, r#"<path d="M3 7h3.5c2 0 3.2 1 4.3 2.6M3 17h3.5c2 0 3.2-1 4.4-2.8l2.3-3.6C14.3 8.9 15.6 7 18 7h3M17.5 3.8 21 7l-3.5 3.2M14.3 14.6c1 1.4 2 2.4 3.7 2.4h3M17.5 13.8 21 17l-3.5 3.2" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#);
-ico!(REPEAT, r#"<path d="M4 11V9.5A2.5 2.5 0 0 1 6.5 7H20M16.5 3.5 20 7l-3.5 3.5M20 13v1.5a2.5 2.5 0 0 1-2.5 2.5H4M7.5 20.5 4 17l3.5-3.5" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#);
-ico!(SEARCH, r#"<circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="2.1" fill="none"/><path d="M15.5 15.5 20.5 20.5" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>"#);
-ico!(NOTE, r#"<path d="M9 18V6.2l11-2.2v12" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linejoin="round"/><circle cx="6.5" cy="18" r="2.6" fill="currentColor"/><circle cx="17.5" cy="16" r="2.6" fill="currentColor"/>"#);
-ico!(LIST, r#"<path d="M9 6.5h11M9 12h11M9 17.5h11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="4.5" cy="6.5" r="1.4" fill="currentColor"/><circle cx="4.5" cy="12" r="1.4" fill="currentColor"/><circle cx="4.5" cy="17.5" r="1.4" fill="currentColor"/>"#);
-ico!(CLOCK, r#"<circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#);
-ico!(SPEAKER, r#"<path d="M4 9.5h3.2L11.5 6v12l-4.3-3.5H4z" fill="currentColor"/><path d="M15 9.2a4 4 0 0 1 0 5.6M17.6 6.8a7.4 7.4 0 0 1 0 10.4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/>"#);
-ico!(SPEAKER_LOW, r#"<path d="M4 9.5h3.2L11.5 6v12l-4.3-3.5H4z" fill="currentColor"/>"#);
-ico!(HOUSE, r#"<path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linejoin="round"/>"#);
-ico!(RADIO, r#"<circle cx="12" cy="12" r="2.2" fill="currentColor"/><path d="M8.2 8.2a5.4 5.4 0 0 0 0 7.6M15.8 8.2a5.4 5.4 0 0 1 0 7.6M5.4 5.4a9.3 9.3 0 0 0 0 13.2M18.6 5.4a9.3 9.3 0 0 1 0 13.2" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round"/>"#);
-ico!(HEART, r#"<path d="M12 20.3s-7.8-4.6-7.8-10.3A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.8 2.4c0 5.7-7.8 10.3-7.8 10.3z" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linejoin="round"/>"#);
-ico!(HEART_FILL, r#"<path d="M12 20.3s-7.8-4.6-7.8-10.3A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.8 2.4c0 5.7-7.8 10.3-7.8 10.3z" fill="currentColor"/>"#);
-ico!(QUOTE, r#"<path d="M5 7.5h5.5v5.2c0 3-1.6 4.8-4.5 5.3M13.5 7.5H19v5.2c0 3-1.6 4.8-4.5 5.3" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#);
-ico!(FILM, r#"<rect x="3.5" y="5.5" width="17" height="13" rx="2.5" stroke="currentColor" stroke-width="1.9" fill="none"/><path d="M10.2 9.4v5.2l4.4-2.6z" fill="currentColor"/>"#);
-ico!(MIC, r#"<rect x="9" y="3.5" width="6" height="11" rx="3" stroke="currentColor" stroke-width="1.9" fill="none"/><path d="M5.8 11.5a6.2 6.2 0 0 0 12.4 0M12 17.7v3" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round"/>"#);
-ico!(GEAR, r#"<circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>"#);
-ico!(CHECK, r#"<path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#);
-ico!(BARS, r#"<rect x="4" y="9" width="3.2" height="11" rx="1" fill="currentColor"/><rect x="10.4" y="4" width="3.2" height="16" rx="1" fill="currentColor"/><rect x="16.8" y="12" width="3.2" height="8" rx="1" fill="currentColor"/>"#);
+ico!(
+    PLAY,
+    r#"<path d="M7.5 4.8v14.4a1 1 0 0 0 1.52.85l11.3-7.2a1 1 0 0 0 0-1.7L9.02 3.95A1 1 0 0 0 7.5 4.8z" fill="currentColor"/>"#
+);
+ico!(
+    PAUSE,
+    r#"<rect x="5.5" y="4" width="4.6" height="16" rx="1.3" fill="currentColor"/><rect x="13.9" y="4" width="4.6" height="16" rx="1.3" fill="currentColor"/>"#
+);
+ico!(
+    NEXT,
+    r#"<path d="M2.5 6.1v11.8a.9.9 0 0 0 1.38.76L12 13.5v4.4a.9.9 0 0 0 1.38.76l8.6-5.9a.9.9 0 0 0 0-1.5l-8.6-5.9A.9.9 0 0 0 12 6.1v4.4L3.88 5.34A.9.9 0 0 0 2.5 6.1z" fill="currentColor"/>"#
+);
+ico!(
+    PREV,
+    r#"<path d="M21.5 6.1v11.8a.9.9 0 0 1-1.38.76L12 13.5v4.4a.9.9 0 0 1-1.38.76l-8.6-5.9a.9.9 0 0 1 0-1.5l8.6-5.9A.9.9 0 0 1 12 6.1v4.4l8.12-5.16a.9.9 0 0 1 1.38.76z" fill="currentColor"/>"#
+);
+ico!(
+    SHUFFLE,
+    r#"<path d="M3 7h3.5c2 0 3.2 1 4.3 2.6M3 17h3.5c2 0 3.2-1 4.4-2.8l2.3-3.6C14.3 8.9 15.6 7 18 7h3M17.5 3.8 21 7l-3.5 3.2M14.3 14.6c1 1.4 2 2.4 3.7 2.4h3M17.5 13.8 21 17l-3.5 3.2" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#
+);
+ico!(
+    REPEAT,
+    r#"<path d="M4 11V9.5A2.5 2.5 0 0 1 6.5 7H20M16.5 3.5 20 7l-3.5 3.5M20 13v1.5a2.5 2.5 0 0 1-2.5 2.5H4M7.5 20.5 4 17l3.5-3.5" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#
+);
+ico!(
+    SEARCH,
+    r#"<circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="2.1" fill="none"/><path d="M15.5 15.5 20.5 20.5" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>"#
+);
+ico!(
+    NOTE,
+    r#"<path d="M9 18V6.2l11-2.2v12" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linejoin="round"/><circle cx="6.5" cy="18" r="2.6" fill="currentColor"/><circle cx="17.5" cy="16" r="2.6" fill="currentColor"/>"#
+);
+ico!(
+    LIST,
+    r#"<path d="M9 6.5h11M9 12h11M9 17.5h11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="4.5" cy="6.5" r="1.4" fill="currentColor"/><circle cx="4.5" cy="12" r="1.4" fill="currentColor"/><circle cx="4.5" cy="17.5" r="1.4" fill="currentColor"/>"#
+);
+ico!(
+    CLOCK,
+    r#"<circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#
+);
+ico!(
+    SPEAKER,
+    r#"<path d="M4 9.5h3.2L11.5 6v12l-4.3-3.5H4z" fill="currentColor"/><path d="M15 9.2a4 4 0 0 1 0 5.6M17.6 6.8a7.4 7.4 0 0 1 0 10.4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/>"#
+);
+ico!(
+    SPEAKER_LOW,
+    r#"<path d="M4 9.5h3.2L11.5 6v12l-4.3-3.5H4z" fill="currentColor"/>"#
+);
+ico!(
+    HOUSE,
+    r#"<path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linejoin="round"/>"#
+);
+ico!(
+    RADIO,
+    r#"<circle cx="12" cy="12" r="2.2" fill="currentColor"/><path d="M8.2 8.2a5.4 5.4 0 0 0 0 7.6M15.8 8.2a5.4 5.4 0 0 1 0 7.6M5.4 5.4a9.3 9.3 0 0 0 0 13.2M18.6 5.4a9.3 9.3 0 0 1 0 13.2" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round"/>"#
+);
+ico!(
+    HEART,
+    r#"<path d="M12 20.3s-7.8-4.6-7.8-10.3A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.8 2.4c0 5.7-7.8 10.3-7.8 10.3z" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linejoin="round"/>"#
+);
+ico!(
+    HEART_FILL,
+    r#"<path d="M12 20.3s-7.8-4.6-7.8-10.3A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.8 2.4c0 5.7-7.8 10.3-7.8 10.3z" fill="currentColor"/>"#
+);
+ico!(
+    QUOTE,
+    r#"<path d="M5 7.5h5.5v5.2c0 3-1.6 4.8-4.5 5.3M13.5 7.5H19v5.2c0 3-1.6 4.8-4.5 5.3" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#
+);
+ico!(
+    FILM,
+    r#"<rect x="3.5" y="5.5" width="17" height="13" rx="2.5" stroke="currentColor" stroke-width="1.9" fill="none"/><path d="M10.2 9.4v5.2l4.4-2.6z" fill="currentColor"/>"#
+);
+ico!(
+    MIC,
+    r#"<rect x="9" y="3.5" width="6" height="11" rx="3" stroke="currentColor" stroke-width="1.9" fill="none"/><path d="M5.8 11.5a6.2 6.2 0 0 0 12.4 0M12 17.7v3" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round"/>"#
+);
+ico!(
+    GEAR,
+    r#"<circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>"#
+);
+ico!(
+    CHECK,
+    r#"<path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>"#
+);
+ico!(
+    BARS,
+    r#"<rect x="4" y="9" width="3.2" height="11" rx="1" fill="currentColor"/><rect x="10.4" y="4" width="3.2" height="16" rx="1" fill="currentColor"/><rect x="16.8" y="12" width="3.2" height="8" rx="1" fill="currentColor"/>"#
+);
 
 // ------------------------------------------------------------------ root
 
@@ -126,9 +196,21 @@ fn fit_for(r: [f32; 4]) -> Fit {
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let p = pal();
     let fit = cx.layout_with("root", fit_for).unwrap_or(Fit::Wide);
-    row().key("root").w_full().h_full().fill(p.bg).child(sidebar(s, &p, fit)).child(
-        col().grow(1.0).shrink().min_w(0.0).h_full().child(toolbar(s, &p, fit)).child(page(s, &p, fit)),
-    )
+    row()
+        .key("root")
+        .w_full()
+        .h_full()
+        .fill(p.bg)
+        .child(sidebar(s, &p, fit))
+        .child(
+            col()
+                .grow(1.0)
+                .shrink()
+                .min_w(0.0)
+                .h_full()
+                .child(toolbar(s, &p, fit))
+                .child(page(s, &p, fit)),
+        )
 }
 
 fn search_field(s: &App, p: &Pal, h: f32) -> El {
@@ -179,7 +261,11 @@ fn sidebar(s: &App, p: &Pal, fit: Fit) -> El {
         .center_y()
         .pl(4.0)
         .child(app_icon(26.0))
-        .child(text("Encore").font(TextStyle::new(16.0, 720.0).tracking(-0.3)).color(p.text));
+        .child(
+            text("Encore")
+                .font(TextStyle::new(16.0, 720.0).tracking(-0.3))
+                .color(p.text),
+        );
 
     col()
         .key("sidebar")
@@ -198,7 +284,13 @@ fn sidebar(s: &App, p: &Pal, fit: Fit) -> El {
         .child(nav(s, p, Page::Home, &HOUSE, "Home"))
         .child(nav(s, p, Page::Search, &SEARCH, "Search"))
         .child(el().h(14.0))
-        .child(text("Library").font(SIDE_HEAD).color(p.faint).pl(8.0).pb(4.0))
+        .child(
+            text("Library")
+                .font(SIDE_HEAD)
+                .color(p.faint)
+                .pl(8.0)
+                .pb(4.0),
+        )
         .child(nav(s, p, Page::Queue, &LIST, "Up Next"))
         .child(nav(s, p, Page::Recent, &CLOCK, "Recently Played"))
         .child(nav(s, p, Page::Liked, &HEART, "Liked Songs"))
@@ -214,7 +306,11 @@ fn rail(s: &App, p: &Pal) -> El {
             .size(40.0, 40.0)
             .radius(10.0)
             .center()
-            .fill(if on { p.hover.alpha(0.12) } else { Color::TRANSPARENT })
+            .fill(if on {
+                p.hover.alpha(0.12)
+            } else {
+                Color::TRANSPARENT
+            })
             .hover(if on { p.hover.alpha(0.12) } else { p.hover })
             .on_press(move |s: &mut App| {
                 s.page = page;
@@ -255,7 +351,11 @@ fn nav(s: &App, p: &Pal, page: Page, glyph: &'static Icon, label: &'static str) 
         .gap(10.0)
         .radius(7.0)
         .center_y()
-        .fill(if on { p.hover.alpha(0.12) } else { Color::TRANSPARENT })
+        .fill(if on {
+            p.hover.alpha(0.12)
+        } else {
+            Color::TRANSPARENT
+        })
         .hover(if on { p.hover.alpha(0.12) } else { p.hover })
         .on_press(move |s: &mut App| s.page = page)
         .child(icon(glyph, 17.0).color(p.accent))
@@ -267,19 +367,53 @@ fn nav(s: &App, p: &Pal, page: Page, glyph: &'static Icon, label: &'static str) 
 fn toolbar(s: &App, p: &Pal, fit: Fit) -> El {
     let paused = s.current.is_none() || s.status.paused;
     let repeat_glyph = row()
-        .child(icon(&REPEAT, 17.0).color(if s.repeat == Repeat::Off { p.dim } else { p.accent }))
-        .child(if s.repeat == Repeat::One { text("1").font(TextStyle::new(9.0, 800.0)).color(p.accent) } else { el() });
+        .child(icon(&REPEAT, 17.0).color(if s.repeat == Repeat::Off {
+            p.dim
+        } else {
+            p.accent
+        }))
+        .child(if s.repeat == Repeat::One {
+            text("1").font(TextStyle::new(9.0, 800.0)).color(p.accent)
+        } else {
+            el()
+        });
     let narrow = fit == Fit::Narrow;
     let mut controls = row().gap(if narrow { 2.0 } else { 4.0 }).center_y();
     if !narrow {
-        controls = controls.child(tool_btn("shuffle", icon(&SHUFFLE, 17.0).color(if s.shuffle { p.accent } else { p.dim }), 34.0, p, |s| s.toggle_shuffle()));
+        controls = controls.child(tool_btn(
+            "shuffle",
+            icon(&SHUFFLE, 17.0).color(if s.shuffle { p.accent } else { p.dim }),
+            34.0,
+            p,
+            |s| s.toggle_shuffle(),
+        ));
     }
     controls = controls
-        .child(tool_btn("prev", icon(&PREV, 21.0).color(p.text), 36.0, p, |s| s.prev()))
-        .child(tool_btn("play", icon(if paused { &PLAY } else { &PAUSE }, 25.0).color(p.text), 42.0, p, |s| s.toggle()))
-        .child(tool_btn("next", icon(&NEXT, 21.0).color(p.text), 36.0, p, |s| s.next()));
+        .child(tool_btn(
+            "prev",
+            icon(&PREV, 21.0).color(p.text),
+            36.0,
+            p,
+            |s| s.prev(),
+        ))
+        .child(tool_btn(
+            "play",
+            icon(if paused { &PLAY } else { &PAUSE }, 25.0).color(p.text),
+            42.0,
+            p,
+            |s| s.toggle(),
+        ))
+        .child(tool_btn(
+            "next",
+            icon(&NEXT, 21.0).color(p.text),
+            36.0,
+            p,
+            |s| s.next(),
+        ));
     if !narrow {
-        controls = controls.child(tool_btn("repeat", repeat_glyph, 34.0, p, |s| s.cycle_repeat()));
+        controls = controls.child(tool_btn("repeat", repeat_glyph, 34.0, p, |s| {
+            s.cycle_repeat()
+        }));
     }
 
     // Lyrics, video and vocal focus: lit in the accent while on.
@@ -287,8 +421,24 @@ fn toolbar(s: &App, p: &Pal, fit: Fit) -> El {
     let mut extras = row()
         .gap(2.0)
         .center_y()
-        .child(tool_btn("lyrics-btn", icon(&QUOTE, 17.0).color(if s.page == Page::Lyrics { p.accent } else { p.dim }), 32.0, p, |s| s.toggle_lyrics()))
-        .child(tool_btn("video-btn", icon(&FILM, 18.0).color(if s.video { p.accent } else { p.dim }), 32.0, p, |s| s.toggle_video()));
+        .child(tool_btn(
+            "lyrics-btn",
+            icon(&QUOTE, 17.0).color(if s.page == Page::Lyrics {
+                p.accent
+            } else {
+                p.dim
+            }),
+            32.0,
+            p,
+            |s| s.toggle_lyrics(),
+        ))
+        .child(tool_btn(
+            "video-btn",
+            icon(&FILM, 18.0).color(if s.video { p.accent } else { p.dim }),
+            32.0,
+            p,
+            |s| s.toggle_video(),
+        ));
     extras = extras.child(
         row()
             .key("vocal-btn")
@@ -297,7 +447,11 @@ fn toolbar(s: &App, p: &Pal, fit: Fit) -> El {
             .gap(5.0)
             .radius(16.0)
             .center_y()
-            .fill(if vocal_on { p.accent_soft } else { Color::TRANSPARENT })
+            .fill(if vocal_on {
+                p.accent_soft
+            } else {
+                Color::TRANSPARENT
+            })
             .hover(p.hover)
             .press_scale(0.92)
             .on_press(|s: &mut App| s.cycle_vocal())
@@ -305,12 +459,18 @@ fn toolbar(s: &App, p: &Pal, fit: Fit) -> El {
             .child(if vocal_on {
                 // Separating: the progress; on real stems: "AI"; else the mode's name.
                 let label = match (s.stem_progress(), s.stem_playing.is_some()) {
-                    (Some(pr), _) => format!("{} {:.0}%", if narrow { "" } else { s.vocal.label() }, pr * 100.0),
+                    (Some(pr), _) => format!(
+                        "{} {:.0}%",
+                        if narrow { "" } else { s.vocal.label() },
+                        pr * 100.0
+                    ),
                     (None, true) => format!("{} · AI", if narrow { "" } else { s.vocal.label() }),
                     _ if narrow => String::new(),
                     _ => s.vocal.label().to_string(),
                 };
-                text(label.trim().to_string()).font(TextStyle::new(11.0, 650.0)).color(p.accent)
+                text(label.trim().to_string())
+                    .font(TextStyle::new(11.0, 650.0))
+                    .color(p.accent)
             } else {
                 el()
             }),
@@ -331,26 +491,55 @@ fn toolbar(s: &App, p: &Pal, fit: Fit) -> El {
         Fit::Wide => bar
             .child(row().w(0.0).grow(1.0).center_y().child(controls))
             .child(lcd(s, p, fit).w(LCD_W))
-            .child(row().w(0.0).grow(1.0).gap(10.0).center_y().child(spacer()).child(extras).child(volume(s, p, 80.0))),
+            .child(
+                row()
+                    .w(0.0)
+                    .grow(1.0)
+                    .gap(10.0)
+                    .center_y()
+                    .child(spacer())
+                    .child(extras)
+                    .child(volume(s, p, 80.0)),
+            ),
         // Medium: the display takes the room between the controls and a shorter volume.
-        Fit::Medium => bar.child(controls).child(lcd(s, p, fit).grow(1.0)).child(extras).child(volume(s, p, 56.0)),
+        Fit::Medium => bar
+            .child(controls)
+            .child(lcd(s, p, fit).grow(1.0))
+            .child(extras)
+            .child(volume(s, p, 56.0)),
         // Narrow: the essentials; ↑ ↓ still change the volume.
-        Fit::Narrow => bar.child(controls).child(lcd(s, p, fit).grow(1.0)).child(extras),
+        Fit::Narrow => bar
+            .child(controls)
+            .child(lcd(s, p, fit).grow(1.0))
+            .child(extras),
     }
 }
 
 fn tool_btn(key: &str, glyph: El, size: f32, p: &Pal, f: impl Fn(&mut App) + 'static) -> El {
-    el().key(key).size(size, size).radius(size / 2.0).center().hover(p.hover).press_scale(0.9).on_press(f).child(glyph)
+    el().key(key)
+        .size(size, size)
+        .radius(size / 2.0)
+        .center()
+        .hover(p.hover)
+        .press_scale(0.9)
+        .on_press(f)
+        .child(glyph)
 }
 
 /// The centred now-playing display: artwork, title, artist, and a progress line you can scrub.
 fn lcd(s: &App, p: &Pal, fit: Fit) -> El {
     let st = &s.status;
     let track = s.now_playing();
-    let frac = s
-        .scrub
-        .unwrap_or(if st.duration > 0.0 { (st.time / st.duration).clamp(0.0, 1.0) as f32 } else { 0.0 });
-    let shown_time = if s.scrub.is_some() { st.duration * frac as f64 } else { st.time };
+    let frac = s.scrub.unwrap_or(if st.duration > 0.0 {
+        (st.time / st.duration).clamp(0.0, 1.0) as f32
+    } else {
+        0.0
+    });
+    let shown_time = if s.scrub.is_some() {
+        st.duration * frac as f64
+    } else {
+        st.time
+    };
 
     let art = match track {
         Some(t) => cover(s, t, 56.0, 0.0, p),
@@ -371,7 +560,11 @@ fn lcd(s: &App, p: &Pal, fit: Fit) -> El {
     };
 
     let info: El = if track.is_none() {
-        col().grow(1.0).h_full().center().child(icon(&NOTE, 20.0).color(p.faint.alpha(0.6)))
+        col()
+            .grow(1.0)
+            .h_full()
+            .center()
+            .child(icon(&NOTE, 20.0).color(p.faint.alpha(0.6)))
     } else {
         col()
             .grow(1.0)
@@ -388,10 +581,27 @@ fn lcd(s: &App, p: &Pal, fit: Fit) -> El {
                     .gap(8.0)
                     .center_y()
                     .child(row().w(0.0).grow(1.0).gap(2.0).child(lcd_actions(s, p)))
-                    .child(text(title).font(TITLE).color(p.text).truncate().shrink().min_w(0.0))
-                    .child(el().w(0.0).grow(1.0).child(spacer()).child(quality_badge(s, p, fit))),
+                    .child(
+                        text(title)
+                            .font(TITLE)
+                            .color(p.text)
+                            .truncate()
+                            .shrink()
+                            .min_w(0.0),
+                    )
+                    .child(
+                        el().w(0.0)
+                            .grow(1.0)
+                            .child(spacer())
+                            .child(quality_badge(s, p, fit)),
+                    ),
             )
-            .child(text(sub).font(SMALL).color(if st.error.is_some() { p.accent } else { p.dim }).truncate())
+            .child(
+                text(sub)
+                    .font(SMALL)
+                    .color(if st.error.is_some() { p.accent } else { p.dim })
+                    .truncate(),
+            )
             .child(spacer())
             .child(
                 row()
@@ -399,9 +609,14 @@ fn lcd(s: &App, p: &Pal, fit: Fit) -> El {
                     .gap(8.0)
                     .center_y()
                     .h(16.0)
-                    .child(text(crate::ui::clock(shown_time)).font(NUM).color(p.faint).w(34.0))
+                    .child(text(clock(shown_time)).font(NUM).color(p.faint).w(34.0))
                     .child(scrubber(frac, p))
-                    .child(text(format!("-{}", clock((st.duration - shown_time).max(0.0)))).font(NUM).color(p.faint).w(38.0)),
+                    .child(
+                        text(format!("-{}", clock((st.duration - shown_time).max(0.0))))
+                            .font(NUM)
+                            .color(p.faint)
+                            .w(38.0),
+                    ),
             )
     };
 
@@ -421,7 +636,9 @@ fn lcd(s: &App, p: &Pal, fit: Fit) -> El {
 
 /// ♥ and song radio for what's playing, inside the now-playing display.
 fn lcd_actions(s: &App, p: &Pal) -> El {
-    let Some(t) = s.now_playing().cloned() else { return el() };
+    let Some(t) = s.now_playing().cloned() else {
+        return el();
+    };
     let liked = s.taste.is_liked(&t.id);
     let on_air = s.station.as_ref().is_some_and(|st| st.seed.id == t.id);
     let (a, b) = (t.clone(), t);
@@ -434,7 +651,13 @@ fn lcd_actions(s: &App, p: &Pal) -> El {
                 .center()
                 .hover(p.hover)
                 .on_press(move |s: &mut App| s.toggle_like(&a))
-                .child(icon(if liked { &HEART_FILL } else { &HEART }, 13.0).color(if liked { p.accent } else { p.faint })),
+                .child(
+                    icon(if liked { &HEART_FILL } else { &HEART }, 13.0).color(if liked {
+                        p.accent
+                    } else {
+                        p.faint
+                    }),
+                ),
         )
         .child(
             el().key("lcd-radio")
@@ -442,8 +665,16 @@ fn lcd_actions(s: &App, p: &Pal) -> El {
                 .radius(11.0)
                 .center()
                 .hover(p.hover)
-                .on_press(move |s: &mut App| if !on_air { s.start_radio(b.clone()) })
-                .child(icon(&RADIO, 13.0).color(if s.station.is_some() { p.accent } else { p.faint })),
+                .on_press(move |s: &mut App| {
+                    if !on_air {
+                        s.start_radio(b.clone())
+                    }
+                })
+                .child(icon(&RADIO, 13.0).color(if s.station.is_some() {
+                    p.accent
+                } else {
+                    p.faint
+                })),
         )
 }
 
@@ -468,11 +699,22 @@ fn quality_badge(s: &App, p: &Pal, fit: Fit) -> El {
         .h(16.0)
         .px(5.0)
         .radius(4.0)
-        .border(1.0, if best { p.accent.alpha(0.6) } else { p.faint.alpha(0.6) })
+        .border(
+            1.0,
+            if best {
+                p.accent.alpha(0.6)
+            } else {
+                p.faint.alpha(0.6)
+            },
+        )
         .center()
         .hover(p.hover)
         .on_press(|s: &mut App| s.page = Page::Settings)
-        .child(text(label).font(TextStyle::new(9.0, 700.0).tracking(0.5)).color(if best { p.accent } else { p.dim }))
+        .child(
+            text(label)
+                .font(TextStyle::new(9.0, 700.0).tracking(0.5))
+                .color(if best { p.accent } else { p.dim }),
+        )
 }
 
 fn scrubber(frac: f32, p: &Pal) -> El {
@@ -495,7 +737,12 @@ fn scrubber(frac: f32, p: &Pal) -> El {
         })
         .child(
             el().w_full().h(3.0).radius(1.5).fill(p.line).child(
-                el().key("scrub-fill").w_frac(frac).h(3.0).radius(1.5).fill(p.dim).motion(Spring::new(0.2, 0.0)),
+                el().key("scrub-fill")
+                    .w_frac(frac)
+                    .h(3.0)
+                    .radius(1.5)
+                    .fill(p.dim)
+                    .motion(Spring::new(0.2, 0.0)),
             ),
         )
 }
@@ -515,9 +762,11 @@ fn volume(s: &App, p: &Pal, width: f32) -> El {
                     s.set_volume((d.x / d.w.max(1.0)).clamp(0.0, 1.0) * 100.0);
                 })
                 .child(
-                    el().w_full().h(4.0).radius(2.0).fill(p.line).child(
-                        el().w_frac(frac).h(4.0).radius(2.0).fill(p.dim),
-                    ),
+                    el().w_full()
+                        .h(4.0)
+                        .radius(2.0)
+                        .fill(p.line)
+                        .child(el().w_frac(frac).h(4.0).radius(2.0).fill(p.dim)),
                 ),
         )
         .child(icon(&SPEAKER, 17.0).color(p.dim))
@@ -537,7 +786,11 @@ fn page(s: &App, p: &Pal, fit: Fit) -> El {
     };
     // With the sidebar folded to icons, search lives at the top of the Search page.
     if fit != Fit::Wide && s.page == Page::Search {
-        content = col().w_full().gap(22.0).child(row().w_full().max_w(520.0).child(search_field(s, p, 36.0))).child(content);
+        content = col()
+            .w_full()
+            .gap(22.0)
+            .child(row().w_full().max_w(520.0).child(search_field(s, p, 36.0)))
+            .child(content);
     }
     col()
         .key("page")
@@ -562,7 +815,9 @@ fn page(s: &App, p: &Pal, fit: Fit) -> El {
                 .pb(40.0)
                 .gap(30.0)
                 .child(content)
-                .scroll(ScrollSpec { stick_bottom: false })
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
                 .scroll_edge_fade(16.0)
                 .scroll_margin(if s.page == Page::Lyrics { 220.0 } else { 0.0 })
                 .grow(1.0)
@@ -580,15 +835,24 @@ fn search_page(s: &App, p: &Pal, fit: Fit) -> El {
     if s.results.is_empty() {
         c = c.child(large_title("Search", p));
         let (head, sub) = if s.search.is_pending() {
-            ("Searching…".to_string(), format!("Looking for “{}”", s.query.text.trim()))
+            (
+                "Searching…".to_string(),
+                format!("Looking for “{}”", s.query.text.trim()),
+            )
         } else if let Some(m) = &s.message {
             if m == "No songs found" {
-                ("No results".into(), "Check the spelling, or try something else.".into())
+                (
+                    "No results".into(),
+                    "Check the spelling, or try something else.".into(),
+                )
             } else {
                 ("Something went wrong".into(), m.clone())
             }
         } else {
-            ("Find something to play".into(), "Search YouTube Music for songs, artists and albums.".into())
+            (
+                "Find something to play".into(),
+                "Search YouTube Music for songs, artists and albums.".into(),
+            )
         };
         c = c.child(
             col()
@@ -597,7 +861,13 @@ fn search_page(s: &App, p: &Pal, fit: Fit) -> El {
                 .pb(30.0)
                 .gap(8.0)
                 .items_center()
-                .child(el().size(76.0, 76.0).radius(38.0).fill(p.accent_soft).center().child(icon(&SEARCH, 32.0).color(p.accent)))
+                .child(
+                    el().size(76.0, 76.0)
+                        .radius(38.0)
+                        .fill(p.accent_soft)
+                        .center()
+                        .child(icon(&SEARCH, 32.0).color(p.accent)),
+                )
                 .child(el().h(6.0))
                 .child(text(head).font(SECTION).color(p.text))
                 .child(text(sub).font(BODY).color(p.dim))
@@ -620,7 +890,11 @@ fn search_page(s: &App, p: &Pal, fit: Fit) -> El {
         return c;
     }
 
-    let title = if s.search.is_pending() { "Searching…".to_string() } else { format!("Results for “{}”", s.searched) };
+    let title = if s.search.is_pending() {
+        "Searching…".to_string()
+    } else {
+        format!("Results for “{}”", s.searched)
+    };
     c = c.child(large_title(title, p));
 
     let top = &s.results[0];
@@ -643,7 +917,12 @@ fn search_page(s: &App, p: &Pal, fit: Fit) -> El {
                     .w_full()
                     .gap(4.0)
                     .child(text(t.title.clone()).font(HERO).color(p.text).truncate())
-                    .child(text(format!("Song · {}", t.artist)).font(BODY).color(p.dim).truncate()),
+                    .child(
+                        text(format!("Song · {}", t.artist))
+                            .font(BODY)
+                            .color(p.dim)
+                            .truncate(),
+                    ),
             )
             .child(spacer())
             .child(
@@ -679,31 +958,64 @@ fn search_page(s: &App, p: &Pal, fit: Fit) -> El {
         row()
             .w_full()
             .gap(28.0)
-            .child(col().w(card_w).gap(12.0).child(text("Top Result").font(SECTION).color(p.text)).child(top_card.w_full()))
-            .child(col().w(0.0).grow(1.0).gap(12.0).child(text("Songs").font(SECTION).color(p.text)).child(songs.w_full()))
+            .child(
+                col()
+                    .w(card_w)
+                    .gap(12.0)
+                    .child(text("Top Result").font(SECTION).color(p.text))
+                    .child(top_card.w_full()),
+            )
+            .child(
+                col()
+                    .w(0.0)
+                    .grow(1.0)
+                    .gap(12.0)
+                    .child(text("Songs").font(SECTION).color(p.text))
+                    .child(songs.w_full()),
+            )
     };
     c = c.child(top_section);
 
     if s.results.len() > 5 {
         c = c.child(shelf(s, p, "More Songs", &s.results[5..], "more"));
     }
-    c.child(track_list(s, p, fit, "All Songs", &s.results, |s: &mut App, i| s.play_from(s.results.clone(), i)))
+    c.child(track_list(
+        s,
+        p,
+        fit,
+        "All Songs",
+        &s.results,
+        |s: &mut App, i| s.play_from(s.results.clone(), i),
+    ))
 }
 
 fn hint(k: &str, what: &str, p: &Pal) -> El {
     row()
         .gap(6.0)
         .center_y()
-        .child(el().h(22.0).px(7.0).radius(6.0).border(1.0, p.line).center().child(text(k.to_string()).font(NUM).color(p.dim)))
+        .child(
+            el().h(22.0)
+                .px(7.0)
+                .radius(6.0)
+                .border(1.0, p.line)
+                .center()
+                .child(text(k.to_string()).font(NUM).color(p.dim)),
+        )
         .child(text(what.to_string()).font(SMALL).color(p.faint))
 }
 
 fn queue_page(s: &App, p: &Pal, fit: Fit) -> El {
     let mut c = col().w_full().gap(30.0).child(large_title("Up Next", p));
     if let Some(st) = &s.station {
-        let mut note = format!("Based on “{}” by {}. Plays on forever; skip an artist twice and they're gone.", st.seed.title, st.seed.artist);
+        let mut note = format!(
+            "Based on “{}” by {}. Plays on forever; skip an artist twice and they're gone.",
+            st.seed.title, st.seed.artist
+        );
         if !st.banned.is_empty() {
-            note = format!("{note} Skipped: {}.", st.banned.iter().cloned().collect::<Vec<_>>().join(", "));
+            note = format!(
+                "{note} Skipped: {}.",
+                st.banned.iter().cloned().collect::<Vec<_>>().join(", ")
+            );
         }
         c = c.child(
             row()
@@ -722,7 +1034,12 @@ fn queue_page(s: &App, p: &Pal, fit: Fit) -> El {
                         .grow(1.0)
                         .gap(4.0)
                         .child(text("▚ SONG RADIO").font(MONO_LABEL).color(p.accent))
-                        .child(text(format!("{} Radio", st.seed.title)).font(TextStyle::new(18.0, 720.0)).color(p.text).truncate())
+                        .child(
+                            text(format!("{} Radio", st.seed.title))
+                                .font(TextStyle::new(18.0, 720.0))
+                                .color(p.text)
+                                .truncate(),
+                        )
                         .child(text(note).font(SMALL).color(p.dim).wrap()),
                 )
                 .child(
@@ -740,44 +1057,77 @@ fn queue_page(s: &App, p: &Pal, fit: Fit) -> El {
         );
     }
     match s.current {
-        None => c.child(text("Nothing queued. Play a song and the rest of its list lines up here.").font(BODY).color(p.dim)),
+        None => c.child(
+            text("Nothing queued. Play a song and the rest of its list lines up here.")
+                .font(BODY)
+                .color(p.dim),
+        ),
         Some(cur) => {
-            c = c.child(track_list(s, p, fit, "Now Playing", &s.queue[cur..=cur], move |s: &mut App, _| s.play_index(cur)));
+            c = c.child(track_list(
+                s,
+                p,
+                fit,
+                "Now Playing",
+                &s.queue[cur..=cur],
+                move |s: &mut App, _| s.play_index(cur),
+            ));
             let rest = &s.queue[cur + 1..];
             if rest.is_empty() {
-                c.child(text("That's the last song in the queue.").font(BODY).color(p.dim))
+                c.child(
+                    text("That's the last song in the queue.")
+                        .font(BODY)
+                        .color(p.dim),
+                )
             } else {
-                c.child(track_list(s, p, fit, "Coming Up", rest, move |s: &mut App, i| s.play_index(cur + 1 + i)))
+                c.child(track_list(
+                    s,
+                    p,
+                    fit,
+                    "Coming Up",
+                    rest,
+                    move |s: &mut App, i| s.play_index(cur + 1 + i),
+                ))
             }
         }
     }
 }
 
 fn recent_page(s: &App, p: &Pal, fit: Fit) -> El {
-    let c = col().w_full().gap(30.0).child(large_title("Recently Played", p));
+    let c = col()
+        .w_full()
+        .gap(30.0)
+        .child(large_title("Recently Played", p));
     if s.history.is_empty() {
         return c.child(text("Songs you play show up here.").font(BODY).color(p.dim));
     }
-    c.child(shelf(s, p, "Jump Back In", &s.history, "recent")).child(track_list(
-        s,
-        p,
-        fit,
-        "History",
-        &s.history,
-        |s: &mut App, i| {
-            let list = s.history.clone();
-            s.play_from(list, i)
-        },
-    ))
+    c.child(shelf(s, p, "Jump Back In", &s.history, "recent"))
+        .child(track_list(
+            s,
+            p,
+            fit,
+            "History",
+            &s.history,
+            |s: &mut App, i| {
+                let list = s.history.clone();
+                s.play_from(list, i)
+            },
+        ))
 }
 
 fn liked_page(s: &App, p: &Pal, fit: Fit) -> El {
     let liked = &s.taste.liked;
-    let mut c = col().w_full().gap(26.0).child(large_title("Liked Songs", p));
+    let mut c = col()
+        .w_full()
+        .gap(26.0)
+        .child(large_title("Liked Songs", p));
     if liked.is_empty() {
         return c.child(text("Tap ♥ on any song (or press L while it plays) and it lands here. Likes also steer your mixes and radio.").font(BODY).color(p.dim).wrap());
     }
-    let pill = |key: &'static str, glyph: &'static Icon, label: &'static str, filled: bool, f: fn(&mut App)| {
+    let pill = |key: &'static str,
+                glyph: &'static Icon,
+                label: &'static str,
+                filled: bool,
+                f: fn(&mut App)| {
         row()
             .key(key)
             .h(34.0)
@@ -786,17 +1136,30 @@ fn liked_page(s: &App, p: &Pal, fit: Fit) -> El {
             .radius(17.0)
             .fill(if filled { p.accent } else { Color::TRANSPARENT })
             .border(if filled { 0.0 } else { 1.0 }, p.text.alpha(0.25))
-            .hover(if filled { p.accent.alpha(0.88) } else { p.hover })
+            .hover(if filled {
+                p.accent.alpha(0.88)
+            } else {
+                p.hover
+            })
             .center_y()
             .press_scale(0.96)
             .on_press(f)
             .child(icon(glyph, 13.0).color(if filled { p.on_accent } else { p.text }))
-            .child(text(label).font(TITLE).color(if filled { p.on_accent } else { p.text }))
+            .child(
+                text(label)
+                    .font(TITLE)
+                    .color(if filled { p.on_accent } else { p.text }),
+            )
     };
     c = c.child(
         row()
             .gap(10.0)
-            .child(text(format!("{} songs", liked.len())).font(BODY).color(p.dim).pr(8.0))
+            .child(
+                text(format!("{} songs", liked.len()))
+                    .font(BODY)
+                    .color(p.dim)
+                    .pr(8.0),
+            )
             .child(pill("liked-play", &PLAY, "Play", true, |s| {
                 let l = s.taste.liked.clone();
                 s.play_from(l, 0)
@@ -815,7 +1178,10 @@ fn liked_page(s: &App, p: &Pal, fit: Fit) -> El {
 }
 
 fn taste_now_nanos() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos() as u64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64)
+        .unwrap_or(0)
 }
 
 // ------------------------------------------------------------------ pieces
@@ -851,7 +1217,12 @@ fn shelf(s: &App, p: &Pal, title: &str, tracks: &[Track], key: &str) -> El {
                     col()
                         .w_full()
                         .gap(2.0)
-                        .child(text(t.title.clone()).font(TITLE).color(if playing { p.accent } else { p.text }).truncate())
+                        .child(
+                            text(t.title.clone())
+                                .font(TITLE)
+                                .color(if playing { p.accent } else { p.text })
+                                .truncate(),
+                        )
                         .child(text(t.artist.clone()).font(BODY).color(p.dim).truncate()),
                 ),
         );
@@ -889,7 +1260,13 @@ fn row_actions(s: &App, p: &Pal, t: &Track) -> El {
                 .hover(p.hover)
                 .group_opacity(if liked { 1.0 } else { 0.0 }, 1.0)
                 .on_press(move |s: &mut App| s.toggle_like(&b))
-                .child(icon(if liked { &HEART_FILL } else { &HEART }, 15.0).color(if liked { p.accent } else { p.dim })),
+                .child(
+                    icon(if liked { &HEART_FILL } else { &HEART }, 15.0).color(if liked {
+                        p.accent
+                    } else {
+                        p.dim
+                    }),
+                ),
         )
 }
 
@@ -917,7 +1294,12 @@ fn compact_row(s: &App, p: &Pal, t: &Track, i: usize) -> El {
                 .justify_center()
                 .gap(3.0)
                 .border_sides([0.0, 0.0, 1.0, 0.0], p.line)
-                .child(text(t.title.clone()).font(TITLE).color(if playing { p.accent } else { p.text }).truncate())
+                .child(
+                    text(t.title.clone())
+                        .font(TITLE)
+                        .color(if playing { p.accent } else { p.text })
+                        .truncate(),
+                )
                 .child(text(t.artist.clone()).font(BODY).color(p.dim).truncate()),
         )
         .child(row_actions(s, p, t))
@@ -925,12 +1307,23 @@ fn compact_row(s: &App, p: &Pal, t: &Track, i: usize) -> El {
 }
 
 /// A numbered track list with album and time columns.
-fn track_list(s: &App, p: &Pal, fit: Fit, title: &str, tracks: &[Track], on_play: impl Fn(&mut App, usize) + Clone + 'static) -> El {
+fn track_list(
+    s: &App,
+    p: &Pal,
+    fit: Fit,
+    title: &str,
+    tracks: &[Track],
+    on_play: impl Fn(&mut App, usize) + Clone + 'static,
+) -> El {
     let playing = s.now_playing().map(|t| t.id.clone());
     let mut list = col().w_full();
     for (i, t) in tracks.iter().enumerate() {
         let is_playing = playing.as_deref() == Some(t.id.as_str());
-        let num: El = if is_playing { icon(&BARS, 13.0).color(p.accent) } else { text(format!("{}", i + 1)).font(NUM).color(p.faint) };
+        let num: El = if is_playing {
+            icon(&BARS, 13.0).color(p.accent)
+        } else {
+            text(format!("{}", i + 1)).font(NUM).color(p.faint)
+        };
         let f = on_play.clone();
         list = list.child(
             row()
@@ -941,7 +1334,11 @@ fn track_list(s: &App, p: &Pal, fit: Fit, title: &str, tracks: &[Track], on_play
                 .gap(14.0)
                 .radius(7.0)
                 .center_y()
-                .fill(if i % 2 == 1 { p.text.alpha(0.025) } else { Color::TRANSPARENT })
+                .fill(if i % 2 == 1 {
+                    p.text.alpha(0.025)
+                } else {
+                    Color::TRANSPARENT
+                })
                 .hover(p.hover)
                 .hover_group()
                 .on_press(move |s: &mut App| f(s, i))
@@ -953,15 +1350,32 @@ fn track_list(s: &App, p: &Pal, fit: Fit, title: &str, tracks: &[Track], on_play
                         .shrink()
                         .min_w(0.0)
                         .gap(2.0)
-                        .child(text(t.title.clone()).font(TITLE).color(if is_playing { p.accent } else { p.text }).truncate())
+                        .child(
+                            text(t.title.clone())
+                                .font(TITLE)
+                                .color(if is_playing { p.accent } else { p.text })
+                                .truncate(),
+                        )
                         .child(text(t.artist.clone()).font(SMALL).color(p.dim).truncate()),
                 )
-                .child(if fit == Fit::Narrow { el() } else { text(t.album.clone()).font(BODY).color(p.dim).w(if fit == Fit::Wide { 220.0 } else { 150.0 }).truncate() })
+                .child(if fit == Fit::Narrow {
+                    el()
+                } else {
+                    text(t.album.clone())
+                        .font(BODY)
+                        .color(p.dim)
+                        .w(if fit == Fit::Wide { 220.0 } else { 150.0 })
+                        .truncate()
+                })
                 .child(row_actions(s, p, t))
                 .child(text(t.duration.clone()).font(NUM).color(p.faint).w(40.0)),
         );
     }
-    col().w_full().gap(10.0).child(text(title.to_string()).font(SECTION).color(p.text)).child(list)
+    col()
+        .w_full()
+        .gap(10.0)
+        .child(text(title.to_string()).font(SECTION).color(p.text))
+        .child(list)
 }
 
 fn cover(s: &App, t: &Track, size: f32, r: f32, p: &Pal) -> El {
@@ -980,8 +1394,10 @@ pub fn clock(secs: f64) -> String {
 // ------------------------------------------------------------------ settings
 
 fn settings_page(s: &App, p: &Pal) -> El {
-    let quality: Vec<(Quality, &'static str, &'static str, bool)> =
-        Quality::ALL.into_iter().map(|q| (q, q.name(), q.detail(), q == Quality::Best)).collect();
+    let quality: Vec<(Quality, &'static str, &'static str, bool)> = Quality::ALL
+        .into_iter()
+        .map(|q| (q, q.name(), q.detail(), q == Quality::Best))
+        .collect();
     let options = option_list(p, "quality", &quality, s.quality, |s, q| s.set_quality(q));
 
     let st = &s.status;
@@ -1061,7 +1477,11 @@ fn home_page(s: &App, p: &Pal, fit: Fit) -> El {
     let mut c = col().w_full().gap(34.0).child(
         col()
             .gap(2.0)
-            .child(text(format!("> {}_", greeting().to_lowercase())).font(TextStyle::new(12.5, 600.0).mono()).color(p.accent))
+            .child(
+                text(format!("> {}_", greeting().to_lowercase()))
+                    .font(TextStyle::new(12.5, 600.0).mono())
+                    .color(p.accent),
+            )
             .child(large_title("Home", p)),
     );
 
@@ -1094,28 +1514,34 @@ fn home_page(s: &App, p: &Pal, fit: Fit) -> El {
         ));
         n += 1;
     }
-    if let Some(last) = s.history.first().filter(|_| n == 0) {
-        if !h.picks.is_empty() {
-            let seed = last.clone();
-            picks = picks.child(feature_card(
-                s,
-                p,
-                "feature-station",
-                "STATION",
-                &format!("{} Radio", seed.artist),
-                &format!("Songs like “{}”", seed.title),
-                h.picks.first(),
-                265.0,
-                move |s: &mut App| {
-                    let picks = s.home.picks.clone();
-                    s.start_station(seed.clone(), picks)
-                },
-            ));
-            n += 1;
-        }
+    if let Some(last) = s.history.first().filter(|_| n == 0)
+        && !h.picks.is_empty()
+    {
+        let seed = last.clone();
+        picks = picks.child(feature_card(
+            s,
+            p,
+            "feature-station",
+            "STATION",
+            &format!("{} Radio", seed.artist),
+            &format!("Songs like “{}”", seed.title),
+            h.picks.first(),
+            265.0,
+            move |s: &mut App| {
+                let picks = s.home.picks.clone();
+                s.start_station(seed.clone(), picks)
+            },
+        ));
+        n += 1;
     }
     for (key, label, title, list, hue) in [
-        ("feature-hits", "TODAY'S HITS", "Top Songs Right Now", &h.hits, 330.0),
+        (
+            "feature-hits",
+            "TODAY'S HITS",
+            "Top Songs Right Now",
+            &h.hits,
+            330.0,
+        ),
         ("feature-chill", "MOOD", "Chill Vibes", &h.chill, 200.0),
         ("feature-good", "MOOD", "Feel-Good Hits", &h.feel_good, 85.0),
     ] {
@@ -1132,18 +1558,36 @@ fn home_page(s: &App, p: &Pal, fit: Fit) -> El {
             }
         }
         let sub = artists.join(", ");
-        picks = picks.child(feature_card(s, p, key, label, title, &sub, list.first(), hue, move |s: &mut App| {
-            let l = match key {
-                "feature-hits" => s.home.hits.clone(),
-                "feature-chill" => s.home.chill.clone(),
-                _ => s.home.feel_good.clone(),
-            };
-            s.play_from(l, 0)
-        }));
+        picks = picks.child(feature_card(
+            s,
+            p,
+            key,
+            label,
+            title,
+            &sub,
+            list.first(),
+            hue,
+            move |s: &mut App| {
+                let l = match key {
+                    "feature-hits" => s.home.hits.clone(),
+                    "feature-chill" => s.home.chill.clone(),
+                    _ => s.home.feel_good.clone(),
+                };
+                s.play_from(l, 0)
+            },
+        ));
         n += 1;
     }
     if n > 0 {
-        c = c.child(section(if h.mixes.is_empty() { "Top Picks for You" } else { "Made for You" }, picks.scroll_x().w_full(), p));
+        c = c.child(section(
+            if h.mixes.is_empty() {
+                "Top Picks for You"
+            } else {
+                "Made for You"
+            },
+            picks.scroll_x().w_full(),
+            p,
+        ));
     } else {
         c = c.child(loading_card(p));
     }
@@ -1169,7 +1613,13 @@ fn home_page(s: &App, p: &Pal, fit: Fit) -> El {
     }
 
     if !s.history.is_empty() {
-        c = c.child(shelf(s, p, "Recently Played", &s.history[..s.history.len().min(16)], "home-recent"));
+        c = c.child(shelf(
+            s,
+            p,
+            "Recently Played",
+            &s.history[..s.history.len().min(16)],
+            "home-recent",
+        ));
     }
     if !h.hits.is_empty() {
         c = c.child(shelf(s, p, "Today's Hits", &h.hits, "home-hits"));
@@ -1198,12 +1648,25 @@ fn home_page(s: &App, p: &Pal, fit: Fit) -> El {
                     .on_press(move |s: &mut App| s.search_for(query))
                     .clip_rounded(12.0)
                     .child(match &s.dots {
-                        Some(img) => el().absolute(0.0, 0.0).w_full().h(92.0).pixels_fit(img.pixels(), SurfaceFit::Fill),
+                        Some(img) => el()
+                            .absolute(0.0, 0.0)
+                            .w_full()
+                            .h(92.0)
+                            .pixels_fit(img.pixels(), SurfaceFit::Fill),
                         None => el(),
                     })
-                    .child(text(name).font(TextStyle::new(17.0, 750.0).tracking(-0.2)).color(Color::WHITE))
+                    .child(
+                        text(name)
+                            .font(TextStyle::new(17.0, 750.0).tracking(-0.2))
+                            .color(Color::WHITE),
+                    )
                     .child(spacer())
-                    .child(text("> play mix_").font(NUM).color(Color::WHITE.alpha(0.8)).group_opacity(0.0, 1.0)),
+                    .child(
+                        text("> play mix_")
+                            .font(NUM)
+                            .color(Color::WHITE.alpha(0.8))
+                            .group_opacity(0.0, 1.0),
+                    ),
             );
         }
         tiles = tiles.child(r);
@@ -1222,13 +1685,20 @@ fn home_page(s: &App, p: &Pal, fit: Fit) -> El {
 /// The shared dot texture laid over a card of known size.
 fn dots_over(s: &App, w: f32, h: f32) -> El {
     match &s.dots {
-        Some(img) => el().absolute(0.0, 0.0).size(w, h).pixels_fit(img.pixels(), SurfaceFit::Fill),
+        Some(img) => el()
+            .absolute(0.0, 0.0)
+            .size(w, h)
+            .pixels_fit(img.pixels(), SurfaceFit::Fill),
         None => el(),
     }
 }
 
 fn section(title: &str, body: El, p: &Pal) -> El {
-    col().w_full().gap(12.0).child(text(title.to_string()).font(SECTION).color(p.text)).child(body)
+    col()
+        .w_full()
+        .gap(12.0)
+        .child(text(title.to_string()).font(SECTION).color(p.text))
+        .child(body)
 }
 
 fn loading_card(p: &Pal) -> El {
@@ -1259,7 +1729,12 @@ fn feature_card(
     const W: f32 = 268.0;
     let artwork = match art {
         Some(t) => cover(s, t, W - 36.0, 10.0, p).shadow(10.0, 26.0, Color::BLACK.alpha(0.45)),
-        None => el().size(W - 36.0, W - 36.0).radius(10.0).fill(Color::BLACK.alpha(0.2)).center().child(icon(&NOTE, 64.0).color(Color::WHITE.alpha(0.5))),
+        None => el()
+            .size(W - 36.0, W - 36.0)
+            .radius(10.0)
+            .fill(Color::BLACK.alpha(0.2))
+            .center()
+            .child(icon(&NOTE, 64.0).color(Color::WHITE.alpha(0.5))),
     };
     let play = el()
         .size(44.0, 44.0)
@@ -1281,14 +1756,28 @@ fn feature_card(
         .press_scale(0.98)
         .on_press(f)
         .child(dots_over(s, W, W + 104.0))
-        .child(text(format!("▚ {label}")).font(MONO_LABEL).color(Color::WHITE.alpha(0.85)))
+        .child(
+            text(format!("▚ {label}"))
+                .font(MONO_LABEL)
+                .color(Color::WHITE.alpha(0.85)),
+        )
         .child(artwork.child(el().absolute(W - 36.0 - 56.0, W - 36.0 - 56.0).child(play)))
         .child(
             col()
                 .w_full()
                 .gap(3.0)
-                .child(text(title.to_string()).font(TextStyle::new(17.0, 720.0).tracking(-0.2)).color(Color::WHITE).truncate())
-                .child(text(sub.to_string()).font(BODY).color(Color::WHITE.alpha(0.72)).truncate()),
+                .child(
+                    text(title.to_string())
+                        .font(TextStyle::new(17.0, 720.0).tracking(-0.2))
+                        .color(Color::WHITE)
+                        .truncate(),
+                )
+                .child(
+                    text(sub.to_string())
+                        .font(BODY)
+                        .color(Color::WHITE.alpha(0.72))
+                        .truncate(),
+                ),
         )
 }
 
@@ -1316,7 +1805,12 @@ fn pick_row(s: &App, p: &Pal, t: &Track, i: usize) -> El {
                 .shrink()
                 .min_w(0.0)
                 .gap(3.0)
-                .child(text(t.title.clone()).font(TITLE).color(if playing { p.accent } else { p.text }).truncate())
+                .child(
+                    text(t.title.clone())
+                        .font(TITLE)
+                        .color(if playing { p.accent } else { p.text })
+                        .truncate(),
+                )
                 .child(text(t.artist.clone()).font(SMALL).color(p.dim).truncate()),
         )
         .child(row_actions(s, p, t))
@@ -1349,15 +1843,32 @@ fn hero(s: &App, p: &Pal, fit: Fit) -> El {
     for (i, line) in ascii_lines.into_iter().enumerate() {
         // Fade from accent to paper down the picture, like a CRT's phosphor glow.
         let t = i as f32 / rows;
-        let ink = oklch(0.68 + 0.22 * t, p.chroma.max(0.08) * (1.0 - t * 0.85), p.hue + 40.0 * t);
+        let ink = oklch(
+            0.68 + 0.22 * t,
+            p.chroma.max(0.08) * (1.0 - t * 0.85),
+            p.hue + 40.0 * t,
+        );
         art = art.child(text(line).font(ASCII).color(ink));
     }
-    let art = el().padding(14.0).radius(10.0).fill(Color::BLACK.alpha(0.55)).border(1.0, p.line).child(art);
+    let art = el()
+        .padding(14.0)
+        .radius(10.0)
+        .fill(Color::BLACK.alpha(0.55))
+        .border(1.0, p.line)
+        .child(art);
 
     let (label, title, sub) = match (playing, track) {
         (Some(t), _) => ("NOW PLAYING", t.title.clone(), t.artist.clone()),
-        (None, Some(t)) => ("PICK UP WHERE YOU LEFT OFF", t.title.clone(), t.artist.clone()),
-        _ => ("WELCOME", "Your music, in dots.".to_string(), "Search, or pick a mood below to start.".to_string()),
+        (None, Some(t)) => (
+            "PICK UP WHERE YOU LEFT OFF",
+            t.title.clone(),
+            t.artist.clone(),
+        ),
+        _ => (
+            "WELCOME",
+            "Your music, in dots.".to_string(),
+            "Search, or pick a mood below to start.".to_string(),
+        ),
     };
 
     let mut buttons = row().gap(10.0).pt(6.0);
@@ -1375,9 +1886,35 @@ fn hero(s: &App, p: &Pal, fit: Fit) -> El {
                     .fill(p.accent)
                     .center_y()
                     .press_scale(0.96)
-                    .on_press(move |s: &mut App| if resume { s.play_track(t.clone()) } else { s.toggle() })
-                    .child(icon(if resume || s.status.paused { &PLAY } else { &PAUSE }, 13.0).color(p.on_accent))
-                    .child(text(if resume { "Play" } else if s.status.paused { "Resume" } else { "Pause" }).font(TITLE).color(p.on_accent)),
+                    .on_press(move |s: &mut App| {
+                        if resume {
+                            s.play_track(t.clone())
+                        } else {
+                            s.toggle()
+                        }
+                    })
+                    .child(
+                        icon(
+                            if resume || s.status.paused {
+                                &PLAY
+                            } else {
+                                &PAUSE
+                            },
+                            13.0,
+                        )
+                        .color(p.on_accent),
+                    )
+                    .child(
+                        text(if resume {
+                            "Play"
+                        } else if s.status.paused {
+                            "Resume"
+                        } else {
+                            "Pause"
+                        })
+                        .font(TITLE)
+                        .color(p.on_accent),
+                    ),
             )
             .child(
                 row()
@@ -1402,8 +1939,21 @@ fn hero(s: &App, p: &Pal, fit: Fit) -> El {
         .min_w(0.0)
         .gap(6.0)
         .child(text(format!("▚ {label}")).font(MONO_LABEL).color(p.accent))
-        .child(text(title).font(TextStyle::new(if fit == Fit::Narrow { 24.0 } else { 34.0 }, 780.0).tracking(-0.8)).color(p.text).truncate())
-        .child(text(sub).font(TextStyle::new(15.0, 500.0)).color(p.dim).truncate())
+        .child(
+            text(title)
+                .font(
+                    TextStyle::new(if fit == Fit::Narrow { 24.0 } else { 34.0 }, 780.0)
+                        .tracking(-0.8),
+                )
+                .color(p.text)
+                .truncate(),
+        )
+        .child(
+            text(sub)
+                .font(TextStyle::new(15.0, 500.0))
+                .color(p.dim)
+                .truncate(),
+        )
         .child(buttons);
 
     let body = if fit == Fit::Narrow {
@@ -1420,7 +1970,12 @@ fn hero(s: &App, p: &Pal, fit: Fit) -> El {
         .border(1.0, p.line)
         .clip_rounded(18.0)
         .child(match &s.dots {
-            Some(img) => el().absolute(0.0, 0.0).w_full().h_full().opacity(0.6).pixels_fit(img.pixels(), SurfaceFit::Fill),
+            Some(img) => el()
+                .absolute(0.0, 0.0)
+                .w_full()
+                .h_full()
+                .opacity(0.6)
+                .pixels_fit(img.pixels(), SurfaceFit::Fill),
             None => el(),
         })
         .child(body)
@@ -1436,7 +1991,12 @@ fn option_list<T: Copy + PartialEq + 'static>(
     current: T,
     pick: fn(&mut App, T),
 ) -> El {
-    let mut options = col().w_full().max_w(620.0).radius(12.0).fill(p.card).clip_rounded(12.0);
+    let mut options = col()
+        .w_full()
+        .max_w(620.0)
+        .radius(12.0)
+        .fill(p.card)
+        .clip_rounded(12.0);
     for (n, &(value, name, detail, recommended)) in items.iter().enumerate() {
         let on = current == value;
         options = options.child(
@@ -1456,7 +2016,11 @@ fn option_list<T: Copy + PartialEq + 'static>(
                         .fill(if on { p.accent } else { Color::TRANSPARENT })
                         .border(if on { 0.0 } else { 1.5 }, p.faint)
                         .center()
-                        .child(if on { icon(&CHECK, 13.0).color(p.on_accent) } else { el() }),
+                        .child(if on {
+                            icon(&CHECK, 13.0).color(p.on_accent)
+                        } else {
+                            el()
+                        }),
                 )
                 .child(
                     col()
@@ -1469,9 +2033,16 @@ fn option_list<T: Copy + PartialEq + 'static>(
                                 .center_y()
                                 .child(text(name).font(TITLE).color(p.text))
                                 .child(if recommended {
-                                    el().h(17.0).px(6.0).radius(4.0).fill(p.accent_soft).center().child(
-                                        text("RECOMMENDED").font(TextStyle::new(9.0, 750.0).tracking(0.6)).color(p.accent),
-                                    )
+                                    el().h(17.0)
+                                        .px(6.0)
+                                        .radius(4.0)
+                                        .fill(p.accent_soft)
+                                        .center()
+                                        .child(
+                                            text("RECOMMENDED")
+                                                .font(TextStyle::new(9.0, 750.0).tracking(0.6))
+                                                .color(p.accent),
+                                        )
                                 } else {
                                     el()
                                 }),
@@ -1484,8 +2055,10 @@ fn option_list<T: Copy + PartialEq + 'static>(
 }
 
 fn artwork_settings(s: &App, p: &Pal) -> El {
-    let items: Vec<(Style, &'static str, &'static str, bool)> =
-        Style::ALL.into_iter().map(|st| (st, st.name(), st.detail(), false)).collect();
+    let items: Vec<(Style, &'static str, &'static str, bool)> = Style::ALL
+        .into_iter()
+        .map(|st| (st, st.name(), st.detail(), false))
+        .collect();
     // A live preview: the current (or last) cover in the chosen style.
     let preview = match s.now_playing().or(s.history.first()) {
         Some(t) => cover(s, t, 96.0, 10.0, p),
@@ -1495,14 +2068,22 @@ fn artwork_settings(s: &App, p: &Pal) -> El {
         .w_full()
         .gap(10.0)
         .child(text("Artwork").font(SECTION).color(p.text))
-        .child(text("How covers are drawn everywhere in Encore.").font(BODY).color(p.dim))
+        .child(
+            text("How covers are drawn everywhere in Encore.")
+                .font(BODY)
+                .color(p.dim),
+        )
         .child(el().h(4.0))
         .child(
             row()
                 .w_full()
                 .max_w(620.0)
                 .gap(18.0)
-                .child(option_list(p, "art", &items, s.art_style, |s, v| s.set_art_style(v)).w(0.0).grow(1.0))
+                .child(
+                    option_list(p, "art", &items, s.art_style, |s, v| s.set_art_style(v))
+                        .w(0.0)
+                        .grow(1.0),
+                )
                 .child(preview),
         )
 }
@@ -1518,7 +2099,11 @@ fn lyrics_page(s: &App, p: &Pal, fit: Fit) -> El {
             .w_full()
             .gap(10.0)
             .child(large_title("Lyrics", p))
-            .child(text("Play a song and its lyrics show up here, in time with the music.").font(BODY).color(p.dim));
+            .child(
+                text("Play a song and its lyrics show up here, in time with the music.")
+                    .font(BODY)
+                    .color(p.dim),
+            );
     };
     let head = row()
         .w_full()
@@ -1531,7 +2116,12 @@ fn lyrics_page(s: &App, p: &Pal, fit: Fit) -> El {
                 .grow(1.0)
                 .gap(3.0)
                 .child(text("▚ LYRICS").font(MONO_LABEL).color(p.accent))
-                .child(text(t.title.clone()).font(TextStyle::new(17.0, 720.0)).color(p.text).truncate())
+                .child(
+                    text(t.title.clone())
+                        .font(TextStyle::new(17.0, 720.0))
+                        .color(p.text)
+                        .truncate(),
+                )
                 .child(text(t.artist.clone()).font(BODY).color(p.dim).truncate()),
         )
         .child(
@@ -1541,26 +2131,65 @@ fn lyrics_page(s: &App, p: &Pal, fit: Fit) -> El {
                 .px(14.0)
                 .gap(7.0)
                 .radius(16.0)
-                .fill(if s.float_lyrics { p.accent } else { Color::TRANSPARENT })
+                .fill(if s.float_lyrics {
+                    p.accent
+                } else {
+                    Color::TRANSPARENT
+                })
                 .border(if s.float_lyrics { 0.0 } else { 1.0 }, p.text.alpha(0.25))
-                .hover(if s.float_lyrics { p.accent.alpha(0.88) } else { p.hover })
+                .hover(if s.float_lyrics {
+                    p.accent.alpha(0.88)
+                } else {
+                    p.hover
+                })
                 .center_y()
                 .press_scale(0.96)
                 .on_press(|s: &mut App| s.toggle_float_lyrics())
                 .child(icon(&QUOTE, 13.0).color(if s.float_lyrics { p.on_accent } else { p.text }))
-                .child(text(if s.float_lyrics { "Floating" } else { "Float in Corner" }).font(TITLE).color(if s.float_lyrics { p.on_accent } else { p.text })),
+                .child(
+                    text(if s.float_lyrics {
+                        "Floating"
+                    } else {
+                        "Float in Corner"
+                    })
+                    .font(TITLE)
+                    .color(if s.float_lyrics { p.on_accent } else { p.text }),
+                ),
         );
-    let style = if fit == Fit::Narrow { LYRIC_NARROW } else { LYRIC };
+    let style = if fit == Fit::Narrow {
+        LYRIC_NARROW
+    } else {
+        LYRIC
+    };
     let body: El = match s.lyrics.get(&t.id) {
         None | Some(Lyrics::Loading) => text("Finding lyrics…").font(style).color(p.faint),
         Some(Lyrics::Missing) => col()
             .gap(8.0)
             .child(text("No lyrics for this one.").font(style).color(p.faint))
-            .child(text("LRCLIB doesn't have this song yet.").font(BODY).color(p.dim)),
+            .child(
+                text("LRCLIB doesn't have this song yet.")
+                    .font(BODY)
+                    .color(p.dim),
+            ),
         Some(Lyrics::Plain(lines)) => {
-            let mut c = col().w_full().gap(10.0).child(text("Not synced: the full text, without timing.").font(SMALL).color(p.faint).pb(8.0));
+            let mut c = col().w_full().gap(10.0).child(
+                text("Not synced: the full text, without timing.")
+                    .font(SMALL)
+                    .color(p.faint)
+                    .pb(8.0),
+            );
             for (i, line) in lines.iter().enumerate() {
-                c = c.child(text(if line.is_empty() { " ".to_string() } else { line.clone() }).key(format!("lyric-{i}")).font(style).color(p.dim).wrap());
+                c = c.child(
+                    text(if line.is_empty() {
+                        " ".to_string()
+                    } else {
+                        line.clone()
+                    })
+                    .key(format!("lyric-{i}"))
+                    .font(style)
+                    .color(p.dim)
+                    .wrap(),
+                );
             }
             c
         }
@@ -1574,7 +2203,11 @@ fn lyrics_page(s: &App, p: &Pal, fit: Fit) -> El {
                     Some(n) if i < n => p.text.alpha(0.28),
                     _ => p.text.alpha(0.45),
                 };
-                let shown = if line.is_empty() { "♪".to_string() } else { line.clone() };
+                let shown = if line.is_empty() {
+                    "♪".to_string()
+                } else {
+                    line.clone()
+                };
                 c = c.child(
                     text(shown)
                         .key(format!("lyric-{i}"))
@@ -1592,14 +2225,29 @@ fn lyrics_page(s: &App, p: &Pal, fit: Fit) -> El {
             c.child(el().h(200.0))
         }
     };
-    col().w_full().max_w(760.0).gap(30.0).child(head).child(body)
+    col()
+        .w_full()
+        .max_w(760.0)
+        .gap(30.0)
+        .child(head)
+        .child(body)
 }
 
 fn vocal_settings(s: &App, p: &Pal) -> El {
     use crate::separate::Engine;
     let items = [
-        (Engine::Fast, "Fast", "Spleeter, int8: a whole song in about 20 seconds. Clean vocals, some artifacts.", true),
-        (Engine::Hq, "Best", "Plays the Fast stems first, then upgrades to Kim_Vocal_2 (UVR's MDX-Net) when it finishes. Studio-clean, but slower than the song itself on this CPU.", false),
+        (
+            Engine::Fast,
+            "Fast",
+            "Spleeter, int8: a whole song in about 20 seconds. Clean vocals, some artifacts.",
+            true,
+        ),
+        (
+            Engine::Hq,
+            "Best",
+            "Plays the Fast stems first, then upgrades to Kim_Vocal_2 (UVR's MDX-Net) when it finishes. Studio-clean, but slower than the song itself on this CPU.",
+            false,
+        ),
     ];
     let mut c = col()
         .w_full()
@@ -1609,7 +2257,12 @@ fn vocal_settings(s: &App, p: &Pal) -> El {
         .child(el().h(4.0))
         .child(option_list(p, "engine", &items, s.engine, |s, e| s.set_engine(e)));
     if let Some(e) = &s.stem_error {
-        c = c.child(text(format!("Last split failed: {e}")).font(SMALL).color(p.accent).wrap());
+        c = c.child(
+            text(format!("Last split failed: {e}"))
+                .font(SMALL)
+                .color(p.accent)
+                .wrap(),
+        );
     }
     c
 }

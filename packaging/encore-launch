@@ -1,9 +1,8 @@
 #!/bin/sh
-# Start Encore, and start it again if it crashes: on Apple Silicon a GPU request can fail
-# while the laptop wakes from sleep with little memory free, and wgpu ends the app on that.
-# Only crashes relaunch (a Rust panic exits 101; SIGTRAP/ABRT/BUS/SEGV give 133-139), never a
-# normal quit or a kill, and at most 3 times a minute so a real bug can't loop forever.
-bin="$HOME/.local/lib/encore/encore"
+# Relaunch crashes at most three times a minute; preserve command-line arguments.
+# Resolve from this script so release archives and custom install prefixes work.
+launcher_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+bin="$launcher_dir/../lib/encore/encore"
 count=0
 window_start=$(date +%s)
 while :; do

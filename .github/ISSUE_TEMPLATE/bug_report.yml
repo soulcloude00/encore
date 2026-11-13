@@ -1,0 +1,27 @@
+name: Bug report
+description: Report a reproducible Encore problem
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Encore version, distro, architecture, desktop, Wayland/X11, mpv and yt-dlp versions.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Relevant doctor output or local crash log. Remove personal paths or sensitive data first.

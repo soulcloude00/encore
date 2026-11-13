@@ -8,8 +8,8 @@
 
 use rune::Color;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
 /// The background opacity terminals use while windows are glassy (omarchy-theme-set-glass).
@@ -48,7 +48,11 @@ impl Theme {
     /// Text and icons on an accent fill: white on a dark or saturated accent, the theme's
     /// background on a pale one.
     pub fn on_accent(&self) -> Color {
-        if self.accent.luminance() > 0.45 { self.background.alpha(1.0) } else { Color::WHITE }
+        if self.accent.luminance() > 0.45 {
+            self.background.alpha(1.0)
+        } else {
+            Color::WHITE
+        }
     }
 
     /// The accent as sRGB bytes, for inks drawn into artwork.
@@ -79,10 +83,7 @@ pub fn generation() -> u64 {
 }
 
 fn state_dir() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))?;
-    Some(base.join("omarchy"))
+    Some(crate::paths::state().join("omarchy"))
 }
 
 fn colors_path() -> Option<PathBuf> {
@@ -98,7 +99,9 @@ fn load() -> Theme {
     let mut t = Theme::default();
     if let Some(text) = colors_path().and_then(|p| std::fs::read_to_string(p).ok()) {
         for line in text.lines() {
-            let Some((key, value)) = line.split_once('=') else { continue };
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
             let value = value.trim().trim_matches('"');
             match key.trim() {
                 "background" => t.background = hex(value).unwrap_or(t.background),
@@ -150,12 +153,20 @@ pub fn follow(waker: rune::Waker) {
 }
 
 fn srgb_decode(c: f32) -> f32 {
-    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
 }
 
 fn srgb_encode(c: f32) -> f32 {
     let c = c.clamp(0.0, 1.0);
-    if c <= 0.003_130_8 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 }
+    if c <= 0.003_130_8 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    }
 }
 
 /// `#rrggbb` (sRGB) to Rune's linear colour.
@@ -164,8 +175,17 @@ fn hex(s: &str) -> Option<Color> {
     if h.len() != 6 {
         return None;
     }
-    let byte = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).ok().map(|v| srgb_decode(v as f32 / 255.0));
-    Some(Color { r: byte(0)?, g: byte(2)?, b: byte(4)?, a: 1.0 })
+    let byte = |i: usize| {
+        u8::from_str_radix(&h[i..i + 2], 16)
+            .ok()
+            .map(|v| srgb_decode(v as f32 / 255.0))
+    };
+    Some(Color {
+        r: byte(0)?,
+        g: byte(2)?,
+        b: byte(4)?,
+        a: 1.0,
+    })
 }
 
 #[cfg(test)]
@@ -175,7 +195,10 @@ mod tests {
     #[test]
     fn hex_round_trips_through_linear() {
         let c = hex("#8071b3").unwrap();
-        let t = Theme { accent: c, ..Theme::default() };
+        let t = Theme {
+            accent: c,
+            ..Theme::default()
+        };
         assert_eq!(t.accent_rgb(), [0x80, 0x71, 0xb3]);
         assert!(hex("8071b3").is_none() && hex("#81").is_none());
     }

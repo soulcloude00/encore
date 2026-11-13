@@ -1,0 +1,2 @@
+https://github.com/microsoft/onnxruntime/tree/v1.22.0
+LICENSE and ThirdPartyNotices.txt

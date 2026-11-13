@@ -17,7 +17,9 @@ impl Track {
     /// The cover at 544 px for the big artwork (search gives 120 px; the URL says the size).
     pub fn big_thumb(&self) -> String {
         match self.thumb.find("=w") {
-            Some(i) if self.thumb.contains("googleusercontent") => format!("{}=w544-h544-l90-rj", &self.thumb[..i]),
+            Some(i) if self.thumb.contains("googleusercontent") => {
+                format!("{}=w544-h544-l90-rj", &self.thumb[..i])
+            }
             _ => self.thumb.clone(),
         }
     }
@@ -56,7 +58,16 @@ pub fn search(query: &str) -> Result<Vec<Track>, String> {
 pub fn is_filler(t: &Track) -> bool {
     let a = t.artist.to_lowercase();
     let n = t.title.to_lowercase();
-    const WORDS: [&str; 8] = ["top hits", "playlist", "top 100", "top 50", "best songs", "hits 20", "mix 20", "compilation"];
+    const WORDS: [&str; 8] = [
+        "top hits",
+        "playlist",
+        "top 100",
+        "top 50",
+        "best songs",
+        "hits 20",
+        "mix 20",
+        "compilation",
+    ];
     WORDS.iter().any(|w| a.contains(w) || n.contains(w)) || a.contains("music channel")
 }
 
@@ -70,7 +81,11 @@ pub fn search_clean(query: &str) -> Result<Vec<Track>, String> {
 /// The official music video for a song, if YouTube Music has one: the "Videos" filter.
 pub fn find_video(t: &Track) -> Option<String> {
     let q = format!("{} {}", crate::taste::primary_artist(&t.artist), t.title);
-    let resp = call(ENDPOINT, json!({ "query": q, "params": "EgWKAQIQAWoKEAkQChAFEAMQBA==" })).ok()?;
+    let resp = call(
+        ENDPOINT,
+        json!({ "query": q, "params": "EgWKAQIQAWoKEAkQChAFEAMQBA==" }),
+    )
+    .ok()?;
     let want = crate::taste::primary_artist(&t.artist);
     // Score each hit: the artist's own channel and "official" win; karaoke, covers, lyric
     // videos and live cuts lose (search often ranks a karaoke version first).
@@ -83,7 +98,18 @@ pub fn find_video(t: &Track) -> Option<String> {
         if title.contains("official") {
             s += 2;
         }
-        for bad in ["karaoke", "cover", "lyric", "live", "reaction", "instrumental", "8d", "slowed", "sped up", "remix"] {
+        for bad in [
+            "karaoke",
+            "cover",
+            "lyric",
+            "live",
+            "reaction",
+            "instrumental",
+            "8d",
+            "slowed",
+            "sped up",
+            "remix",
+        ] {
             if title.contains(bad) && !t.title.to_lowercase().contains(bad) {
                 s -= 5;
             }
@@ -101,16 +127,23 @@ pub fn radio(video_id: &str) -> Result<Vec<Track>, String> {
         "https://music.youtube.com/youtubei/v1/next?prettyPrint=false",
         json!({ "videoId": video_id, "playlistId": format!("RDAMVM{video_id}"), "isAudioOnly": true }),
     )?;
-    let items = &resp["contents"]["singleColumnMusicWatchNextResultsRenderer"]["tabbedRenderer"]
-        ["watchNextTabbedResultsRenderer"]["tabs"][0]["tabRenderer"]["content"]["musicQueueRenderer"]["content"]
-        ["playlistPanelRenderer"]["contents"];
+    let items = &resp["contents"]["singleColumnMusicWatchNextResultsRenderer"]["tabbedRenderer"]["watchNextTabbedResultsRenderer"]
+        ["tabs"][0]["tabRenderer"]["content"]["musicQueueRenderer"]["content"]["playlistPanelRenderer"]
+        ["contents"];
     let runs = |v: &Value| -> String {
-        v["runs"].as_array().into_iter().flatten().filter_map(|r| r["text"].as_str()).collect::<String>()
+        v["runs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|r| r["text"].as_str())
+            .collect::<String>()
     };
     let mut out = Vec::new();
     for it in items.as_array().into_iter().flatten() {
         let r = &it["playlistPanelVideoRenderer"];
-        let Some(id) = r["videoId"].as_str() else { continue };
+        let Some(id) = r["videoId"].as_str() else {
+            continue;
+        };
         // "Artist • Album • 2001"
         let by = runs(&r["longBylineText"]);
         let parts: Vec<&str> = by.split(" • ").collect();
@@ -118,12 +151,25 @@ pub fn radio(video_id: &str) -> Result<Vec<Track>, String> {
             id: id.to_string(),
             title: runs(&r["title"]),
             artist: parts.first().unwrap_or(&"").to_string(),
-            album: if parts.len() >= 2 && !parts[1].chars().all(|c| c.is_ascii_digit()) { parts[1].to_string() } else { String::new() },
+            album: if parts.len() >= 2 && !parts[1].chars().all(|c| c.is_ascii_digit()) {
+                parts[1].to_string()
+            } else {
+                String::new()
+            },
             duration: runs(&r["lengthText"]),
-            thumb: r["thumbnail"]["thumbnails"].as_array().and_then(|a| a.last()).and_then(|t| t["url"].as_str()).unwrap_or_default().to_string(),
+            thumb: r["thumbnail"]["thumbnails"]
+                .as_array()
+                .and_then(|a| a.last())
+                .and_then(|t| t["url"].as_str())
+                .unwrap_or_default()
+                .to_string(),
         });
     }
-    if out.is_empty() { Err("no radio for this song".into()) } else { Ok(out) }
+    if out.is_empty() {
+        Err("no radio for this song".into())
+    } else {
+        Ok(out)
+    }
 }
 
 impl Track {
@@ -132,7 +178,14 @@ impl Track {
     }
     pub fn from_json(v: &Value) -> Option<Track> {
         let f = |k: &str| v[k].as_str().unwrap_or_default().to_string();
-        Some(Track { id: v["id"].as_str()?.to_string(), title: f("title"), artist: f("artist"), album: f("album"), duration: f("duration"), thumb: f("thumb") })
+        Some(Track {
+            id: v["id"].as_str()?.to_string(),
+            title: f("title"),
+            artist: f("artist"),
+            album: f("album"),
+            duration: f("duration"),
+            thumb: f("thumb"),
+        })
     }
 }
 
@@ -141,7 +194,11 @@ fn parse(v: &Value) -> Vec<Track> {
         ["sectionListRenderer"]["contents"];
     let mut out = Vec::new();
     for sec in sections.as_array().into_iter().flatten() {
-        for item in sec["musicShelfRenderer"]["contents"].as_array().into_iter().flatten() {
+        for item in sec["musicShelfRenderer"]["contents"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
             if let Some(t) = track(&item["musicResponsiveListItemRenderer"]) {
                 out.push(t);
             }
@@ -164,21 +221,39 @@ fn track(r: &Value) -> Option<Track> {
     // "Artist • Album • 3:45" (artists can be several runs joined by " & " or ", ").
     let meta = col(1).concat();
     let parts: Vec<&str> = meta.split(" • ").collect();
-    let duration = parts.last().filter(|p| p.contains(':')).map(|p| p.to_string()).unwrap_or_default();
+    let duration = parts
+        .last()
+        .filter(|p| p.contains(':'))
+        .map(|p| p.to_string())
+        .unwrap_or_default();
     let artist = parts.first().map(|p| p.to_string()).unwrap_or_default();
-    let album = if parts.len() >= 3 { parts[parts.len() - 2].to_string() } else { String::new() };
+    let album = if parts.len() >= 3 {
+        parts[parts.len() - 2].to_string()
+    } else {
+        String::new()
+    };
     let thumb = r["thumbnail"]["musicThumbnailRenderer"]["thumbnail"]["thumbnails"]
         .as_array()
         .and_then(|a| a.last())
         .and_then(|t| t["url"].as_str())
         .unwrap_or_default()
         .to_string();
-    Some(Track { id, title, artist, album, duration, thumb })
+    Some(Track {
+        id,
+        title,
+        artist,
+        album,
+        duration,
+        thumb,
+    })
 }
 
 /// Fetch cover art bytes (blocking; call off the UI thread).
 pub fn fetch(url: &str) -> Option<Vec<u8>> {
-    let resp = ureq::get(url).timeout(std::time::Duration::from_secs(10)).call().ok()?;
+    let resp = ureq::get(url)
+        .timeout(std::time::Duration::from_secs(10))
+        .call()
+        .ok()?;
     let mut bytes = Vec::new();
     std::io::Read::read_to_end(&mut resp.into_reader(), &mut bytes).ok()?;
     Some(bytes)

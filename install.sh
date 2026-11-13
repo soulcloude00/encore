@@ -1,34 +1,54 @@
 #!/usr/bin/env bash
-# Build Encore's release binary and install it for this user, with an app-launcher entry.
-# Rerun after changing the code. Uninstall with: ./install.sh --uninstall
+# Per-user source or release-archive installation. Never needs sudo.
 set -euo pipefail
-cd "$(dirname "$0")"
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
-bin="$HOME/.local/lib/encore/encore"
-launcher="$HOME/.local/bin/encore"
-desktop="$HOME/.local/share/applications/encore.desktop"
-icon="$HOME/.local/share/icons/hicolor/scalable/apps/encore.svg"
-
-if [[ ${1:-} == --uninstall ]]; then
-  rm -f "$bin" "$launcher" "$desktop" "$icon"
-  rmdir "$(dirname "$bin")" 2>/dev/null || true
-  update-desktop-database -q "$HOME/.local/share/applications" 2>/dev/null || true
-  echo "Encore removed (settings stay in ~/.config/encore)."
+usage() { echo "Usage: ./install.sh [--binary FILE | --uninstall | --help]"; }
+mode=source
+binary=
+case ${1:-} in
+  --help|-h) usage; exit 0 ;;
+  --uninstall) mode=uninstall; shift ;;
+  --binary) [[ $# == 2 ]] || { usage >&2; exit 2; }; mode=binary; binary=$2; shift 2 ;;
+  '') ;;
+  *) usage >&2; exit 2 ;;
+esac
+[[ $# == 0 ]] || { usage >&2; exit 2; }
+[[ $(uname -s) == Linux ]] || { echo "Encore currently supports Linux." >&2; exit 1; }
+prefix=${ENCORE_PREFIX:-"$HOME/.local"}
+[[ $prefix == /* ]] || { echo "ENCORE_PREFIX must be absolute." >&2; exit 2; }
+bin="$prefix/lib/encore/encore"
+launcher="$prefix/bin/encore"
+desktop="$prefix/share/applications/encore.desktop"
+icon="$prefix/share/icons/hicolor/scalable/apps/encore.svg"
+if [[ $mode == uninstall ]]; then
+  rm -f -- "$bin" "$launcher" "$desktop" "$icon"
+  rmdir -- "$(dirname -- "$bin")" 2>/dev/null || true
+  echo "Encore removed. Your settings, history, and cached models were kept."
   exit 0
 fi
-
-# -j3 and a low priority keep the build from starving the desktop of memory.
-nice -n 10 cargo build --release -j3
-
-install -Dm755 target/release/encore "$bin"
-# The launcher reopens Encore after a crash (see packaging/encore-launch).
+command -v python3 >/dev/null || { echo "Install python3 to run the installer." >&2; exit 1; }
+if [[ $mode == source ]]; then
+  cargo build --release --locked --jobs "${CARGO_BUILD_JOBS:-2}"
+  binary="${CARGO_TARGET_DIR:-target}/release/encore"
+fi
+[[ -f $binary && -x $binary ]] || { echo "Missing executable: $binary" >&2; exit 1; }
+install -Dm755 -- "$binary" "$bin"
 install -Dm755 packaging/encore-launch "$launcher"
 install -Dm644 packaging/encore.svg "$icon"
 install -Dm644 packaging/encore.desktop "$desktop"
-# Absolute Exec, so the launcher works even where ~/.local/bin isn't on PATH.
-sed -i "s|^Exec=.*|Exec=$launcher|" "$desktop"
-update-desktop-database -q "$HOME/.local/share/applications" 2>/dev/null || true
-gtk-update-icon-cache -q -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
-
-echo "Installed: $launcher (runs $bin)"
-echo "Open it from the app launcher (Super+Space → Encore)."
+# Desktop Exec uses its own quoting rules; escape reserved characters in the absolute path.
+python3 - "$desktop" "$launcher" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+launcher = sys.argv[2]
+for ch in ('\\', '"', '`', '$'):
+    launcher = launcher.replace(ch, '\\' + ch)
+launcher = launcher.replace('%', '%%')
+# Desktop-entry string parsing consumes one escape layer before Exec is parsed.
+launcher = launcher.replace('\\', '\\\\')
+path.write_text(path.read_text().replace('Exec=encore', f'Exec="{launcher}"'))
+PY
+update-desktop-database -q "$prefix/share/applications" 2>/dev/null || true
+echo "Installed: $launcher"
+echo "Run '$launcher --doctor' to check playback dependencies."

@@ -30,54 +30,55 @@ pub struct Status {
 pub struct Mpv {
     child: Child,
     sock: UnixStream,
-    socket_path: PathBuf,
+    _runtime: tempfile::TempDir,
     pub status: Arc<Mutex<Status>>,
 }
 
 impl Mpv {
     pub fn spawn(waker: rune::Waker) -> Result<Mpv, String> {
-        let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-        let socket_path = dir.join(format!("encore-{}.sock", std::process::id()));
-        let _ = std::fs::remove_file(&socket_path);
+        let runtime_base = std::env::var_os("XDG_RUNTIME_DIR")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .unwrap_or_else(std::env::temp_dir);
+        let runtime = tempfile::Builder::new()
+            .prefix("encore-")
+            .tempdir_in(runtime_base)
+            .map_err(|e| format!("couldn't create private playback directory: {e}"))?;
+        let socket_path = runtime.path().join("mpv.sock");
+        let input_path = runtime.path().join("input.conf");
+        std::fs::write(&input_path, "CLOSE_WIN script-message encore-video-closed\nq script-message encore-video-closed\nESC script-message encore-video-closed\n")
+            .map_err(|e| format!("couldn't write video bindings: {e}"))?;
         let mut cmd = Command::new("mpv");
-        cmd
-            .args([
-                "--idle=yes",
-                "--no-video",
-                "--no-terminal",
-                "--force-window=no",
-                "--ytdl-format=bestaudio/best",
-                // Keep the signal untouched: no ReplayGain, no volume boost past 100%.
-                "--replaygain=no",
-                "--volume-max=100",
-                "--gapless-audio=weak",
-                // A whole song is a few MB, so 32 MiB ahead still buffers it all; keep only a
-                // little behind for seeking back (mpv's default back buffer is 150 MiB).
-                "--cache=yes",
-                "--demuxer-max-bytes=32MiB",
-                "--demuxer-max-back-bytes=8MiB",
-                // Video mode decodes on the GPU where it can, not on the CPU.
-                "--hwdec=auto-safe",
-                // Encore drives mpv over IPC: skip the built-in Lua scripts it never uses (each
-                // runs its own interpreter thread). The OSC stays for the video window's seek bar.
-                "--load-auto-profiles=no",
-                "--load-commands=no",
-                "--load-console=no",
-                "--load-context-menu=no",
-                "--load-positioning=no",
-                "--load-select=no",
-                "--load-stats-overlay=no",
-                "--load-scripts=no",
-                &format!("--script-opts=ytdl_hook-ytdl_path={}", ytdl_path()),
-                &format!("--input-ipc-server={}", socket_path.display()),
-                // The video window: its own title, and closing it (or pressing q in it) hides
-                // video instead of quitting the player.
-                "--title=Encore — Video",
-                &format!("--input-conf={}", input_conf().display()),
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        cmd.args([
+            "--idle=yes",
+            "--no-video",
+            "--no-terminal",
+            "--force-window=no",
+            "--ytdl-format=bestaudio/best",
+            // Keep the signal untouched: no ReplayGain, no volume boost past 100%.
+            "--replaygain=no",
+            "--volume-max=100",
+            "--gapless-audio=weak",
+            // A whole song is a few MB, so 32 MiB ahead still buffers it all; keep only a
+            // little behind for seeking back (mpv's default back buffer is 150 MiB).
+            "--cache=yes",
+            "--demuxer-max-bytes=32MiB",
+            "--demuxer-max-back-bytes=8MiB",
+            // Video mode decodes on the GPU where it can, not on the CPU.
+            "--hwdec=auto-safe",
+            // Isolate playback from user mpv configuration and third-party scripts.
+            "--no-config",
+            "--load-scripts=no",
+            &format!("--script-opts=ytdl_hook-ytdl_path={}", ytdl_path()),
+            &format!("--input-ipc-server={}", socket_path.display()),
+            // The video window: its own title, and closing it (or pressing q in it) hides
+            // video instead of quitting the player.
+            "--title=Encore — Video",
+            &format!("--input-conf={}", input_path.display()),
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
         // If Encore dies or exits without dropping us, take mpv down with it.
         // SAFETY: prctl is async-signal-safe and touches only this child.
         unsafe {
@@ -86,7 +87,7 @@ impl Mpv {
                 Ok(())
             });
         }
-        let child = cmd
+        let mut child = cmd
             .spawn()
             .map_err(|e| format!("couldn't start mpv: {e}"))?;
 
@@ -98,23 +99,59 @@ impl Mpv {
             }
             std::thread::sleep(Duration::from_millis(30));
         }
-        let sock = sock.ok_or("mpv didn't open its IPC socket")?;
-        let status = Arc::new(Mutex::new(Status { paused: true, ..Default::default() }));
+        let sock = match sock {
+            Some(sock) => sock,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("mpv didn't open its IPC socket; run encore --doctor".into());
+            }
+        };
+        let status = Arc::new(Mutex::new(Status {
+            paused: true,
+            ..Default::default()
+        }));
 
-        let reader = BufReader::new(sock.try_clone().map_err(|e| e.to_string())?);
+        let reader_sock = match sock.try_clone() {
+            Ok(sock) => sock,
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(e.to_string());
+            }
+        };
+        let reader = BufReader::new(reader_sock);
         let st = status.clone();
         std::thread::spawn(move || {
             for line in reader.lines() {
                 let Ok(line) = line else { break };
-                let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+                let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
                 if handle(&st, &v) {
                     waker();
                 }
             }
         });
 
-        let mut mpv = Mpv { child, sock, socket_path, status };
-        for (i, prop) in ["time-pos", "duration", "pause", "idle-active", "audio-codec-name", "audio-params/samplerate", "audio-bitrate"].iter().enumerate() {
+        let mut mpv = Mpv {
+            child,
+            sock,
+            _runtime: runtime,
+            status,
+        };
+        for (i, prop) in [
+            "time-pos",
+            "duration",
+            "pause",
+            "idle-active",
+            "audio-codec-name",
+            "audio-params/samplerate",
+            "audio-bitrate",
+        ]
+        .iter()
+        .enumerate()
+        {
             mpv.send(json!(["observe_property", i + 1, prop]));
         }
         Ok(mpv)
@@ -139,7 +176,13 @@ impl Mpv {
         self.send(json!(["set_property", "ytdl-format", format]));
         match start {
             // Per-file option (mpv ≥ 0.38): only this file starts there.
-            Some(t) => self.send(json!(["loadfile", url, "replace", -1, format!("start={t:.1}")])),
+            Some(t) => self.send(json!([
+                "loadfile",
+                url,
+                "replace",
+                -1,
+                format!("start={t:.1}")
+            ])),
             None => self.send(json!(["loadfile", url, "replace"])),
         }
         self.send(json!(["set_property", "pause", false]));
@@ -151,8 +194,16 @@ impl Mpv {
 
     /// Show video in mpv's own window, or go back to audio only.
     pub fn set_video(&mut self, on: bool) {
-        self.send(json!(["set_property", "force-window", if on { "yes" } else { "no" }]));
-        self.send(json!(["set_property", "vid", if on { "auto" } else { "no" }]));
+        self.send(json!([
+            "set_property",
+            "force-window",
+            if on { "yes" } else { "no" }
+        ]));
+        self.send(json!([
+            "set_property",
+            "vid",
+            if on { "auto" } else { "no" }
+        ]));
     }
 
     /// An ffmpeg filter chain for the audio ("" for none).
@@ -165,15 +216,12 @@ impl Mpv {
     }
 
     pub fn seek(&mut self, secs: f64, absolute: bool) {
-        self.send(json!(["seek", secs, if absolute { "absolute" } else { "relative" }]));
+        self.send(json!([
+            "seek",
+            secs,
+            if absolute { "absolute" } else { "relative" }
+        ]));
     }
-}
-
-/// Key bindings for the video window: closing it tells Encore instead of quitting mpv.
-fn input_conf() -> PathBuf {
-    let path = std::env::temp_dir().join(format!("encore-input-{}.conf", std::process::id()));
-    let _ = std::fs::write(&path, "CLOSE_WIN script-message encore-video-closed\nq script-message encore-video-closed\nESC script-message encore-video-closed\n");
-    path
 }
 
 /// The yt-dlp mpv should use. YouTube breaks old versions often, so prefer one installed per
@@ -266,8 +314,8 @@ fn handle(st: &Mutex<Status>, v: &Value) -> bool {
 
 impl Drop for Mpv {
     fn drop(&mut self) {
-        self.send(json!(["quit"]));
+        // Bound shutdown even when IPC has stopped responding.
+        let _ = self.child.kill();
         let _ = self.child.wait();
-        let _ = std::fs::remove_file(&self.socket_path);
     }
 }

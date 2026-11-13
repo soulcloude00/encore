@@ -37,7 +37,10 @@ impl Style {
         }
     }
     pub fn from_id(id: &str) -> Style {
-        Style::ALL.into_iter().find(|s| s.id() == id).unwrap_or(Style::Dots)
+        Style::ALL
+            .into_iter()
+            .find(|s| s.id() == id)
+            .unwrap_or(Style::Dots)
     }
 }
 
@@ -111,7 +114,8 @@ fn halftone(img: &RgbaImage, cells: u32, cell: u32) -> (u32, u32, Vec<u8>) {
                     }
                     let i = (((oy + y) * size + ox + x) * 4) as usize;
                     for k in 0..3 {
-                        out[i + k] = (out[i + k] as f32 + (col[k] as f32 - out[i + k] as f32) * cover) as u8;
+                        out[i + k] =
+                            (out[i + k] as f32 + (col[k] as f32 - out[i + k] as f32) * cover) as u8;
                     }
                 }
             }
@@ -171,7 +175,8 @@ fn to_ascii(img: &RgbaImage, cols: u32, rows: u32) -> Vec<String> {
             (0..cols)
                 .map(|x| {
                     let l = luma(&small.get_pixel(x, y).0).powf(0.9);
-                    RAMP[((l * (RAMP.len() - 1) as f32).round() as usize).min(RAMP.len() - 1)] as char
+                    RAMP[((l * (RAMP.len() - 1) as f32).round() as usize).min(RAMP.len() - 1)]
+                        as char
                 })
                 .collect()
         })
@@ -195,7 +200,12 @@ pub fn dot_texture(size: u32, cell: u32) -> Vec<u8> {
                     let cover = (r - (dx * dx + dy * dy).sqrt() + 0.5).clamp(0.0, 1.0);
                     if cover > 0.0 {
                         let i = (((cy * cell + y) * size + cx * cell + x) * 4) as usize;
-                        out[i..i + 4].copy_from_slice(&[255, 255, 255, (cover * 0.16 * 255.0) as u8]);
+                        out[i..i + 4].copy_from_slice(&[
+                            255,
+                            255,
+                            255,
+                            (cover * 0.16 * 255.0) as u8,
+                        ]);
                     }
                 }
             }
