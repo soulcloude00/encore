@@ -4,7 +4,7 @@ A Linux desktop music player with YouTube Music search, continuous song radio,
 synced lyrics, video playback, and optional local vocal separation. Built in Rust
 with [Rune](https://github.com/anomalyco/rune); audio plays through mpv.
 
-**Early preview (0.1.0).** Playback uses unofficial YouTube Music endpoints and
+**Early preview (0.1.1).** Playback uses unofficial YouTube Music endpoints and
 can break when the service changes. No YouTube login is required or supported.
 Linux is the current target; Windows and macOS are not supported by this code.
 Omarchy is optional: other desktops get Encore's default dark theme.
@@ -29,7 +29,7 @@ sudo apt install mpv libxkbcommon0 fontconfig fonts-dejavu-core
 Verify the downloaded archive before extracting it:
 
 ```sh
-sha256sum -c encore-0.1.0-<target>.tar.gz.sha256  # run beside the downloaded archive
+sha256sum -c encore-0.1.1-<target>.tar.gz.sha256  # run beside the downloaded archive
 ```
 
 After extracting and entering the directory:

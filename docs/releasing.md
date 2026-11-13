@@ -11,7 +11,7 @@ an approved release automatically: a version tag produces a draft prerelease.
 5. Review third-party license obligations and include required license texts/notices.
    The GitHub workflow exports Cargo metadata as an inventory for this review; model
    weights and external playback programs are not bundled.
-6. Push an annotated tag matching the manifest, for example `v0.1.0`. Both CI builds
+6. Push an annotated tag matching the manifest, for example `v0.1.1`. Both CI builds
    must pass before the workflow creates a **draft prerelease** with archives/checksums.
 7. Inspect CI logs, extracted archives, dependency inventory, and checksums. Add tested
    distros/architectures, known issues, and model setup limitations to the release notes.

@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.0 — Unreleased preview
+## 0.1.1 — Preview
+
+- Accept mpv version strings both with and without the `v` prefix in diagnostics.
+
+## 0.1.0 — Initial release candidate
 
 - Desktop YouTube Music search and mpv playback, queue, shuffle and repeat.
 - Local recommendation profile, daily mixes, song radio, lyrics and artwork styles.

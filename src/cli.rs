@@ -97,7 +97,11 @@ fn tool(program: &str, flag: &str) -> bool {
 }
 
 fn supported_mpv(text: &str) -> bool {
-    let version = text.split_whitespace().nth(1).unwrap_or("");
+    let version = text
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("")
+        .trim_start_matches('v');
     let mut parts = version.split('.');
     matches!((parts.next().and_then(|x| x.parse::<u32>().ok()), parts.next().and_then(|x| x.parse::<u32>().ok())), (Some(major), Some(minor)) if major > 0 || minor >= 38)
 }
@@ -162,6 +166,7 @@ mod tests {
         assert!(!supported_mpv("mpv 0.37.0"));
         assert!(supported_mpv("mpv 0.38.0"));
         assert!(supported_mpv("mpv 0.41.0-dev"));
+        assert!(supported_mpv("mpv v0.41.0 Copyright"));
         assert!(!supported_mpv("garbage"));
     }
 }
